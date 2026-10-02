@@ -1,9 +1,17 @@
 import express from 'express';
+import multer from "multer";
+import eventController from "../controllers/event.js";
 const router = express.Router();
-
-// Temporary test route
-router.get('/test', (req, res) => {
-    res.json({ message: "Route entry point successfully mounted using ES Modules!" });
+const upload = multer({ 
+    dest: 'uploads/',
+    storage: multer.memoryStorage(),
+    limits: {
+        filesize: 5 * 1024 * 1024 ,
+    } 
 });
 
-export default router; // Exporting using ES Modules syntax
+router.post('/', eventController.createEvent);
+
+router.post('/:id/codes', upload.single("file"), eventController.uploadCodes);
+
+export default router;
