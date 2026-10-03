@@ -1,11 +1,8 @@
-import Event  from '../models/event.js'
+import Event from '../models/event.js'
 import mongoose from 'mongoose'
-import TicketCode from '../models/ticket.js'
-import csvParser from 'csv-parser';
-import { Readable} from "stream"
 
 class EventController {
-      async createEvent(req, res ) {
+      async createEvent(req, res) {
             const session = await mongoose.startSession();
             try {
                   session.startTransaction();
@@ -23,9 +20,9 @@ class EventController {
 
                   const event = await Event.create([{
                         name: name.trim(),
-                        date, 
-                        venue: venue.trim(), 
-                        status, 
+                        date,
+                        venue: venue.trim(),
+                        status,
                         organizer_id
                   }], { session });
 
@@ -33,26 +30,28 @@ class EventController {
                   session.endSession()
 
                   return res.status(201).json({
-                        success: true, 
-                        message: "Event created successfully", 
+                        success: true,
+                        message: "Event created successfully",
                         data: event[0]
                   })
 
-            } catch(error) {
+            } catch (error) {
                   await session.abortTransaction();
-                  res.status(500).json({ success: false,
-                        message: 'Error creating event', 
-                        error: error.message });
+                  res.status(500).json({
+                        success: false,
+                        message: 'Error creating event',
+                        error: error.message
+                  });
             } finally {
                   session.endSession();
             }
       }
 
-      async getAllEvents (req, res){
+      async getAllEvents(req, res) {
             try {
                   const events = await Event.find();
 
-                  if (!events){
+                  if (!events) {
                         return res.status(404).json({
                               success: false,
                               message: "No event found"
@@ -65,7 +64,7 @@ class EventController {
                         event: events
                   })
 
-            } catch(error){
+            } catch (error) {
 
                   res.status(500).json({
                         success: false,
@@ -74,13 +73,13 @@ class EventController {
             }
       }
 
-      async getEventById(req, res){
+      async getEventById(req, res) {
             try {
                   const id = req.params.id;
 
                   const event = await Event.findById(id);
 
-                  if (!event){
+                  if (!event) {
                         return res.status(404).json({
                               success: false,
                               message: "No event found with this id"
@@ -92,21 +91,21 @@ class EventController {
                         message: "Event found and fetched sucessfully",
                         event: event
                   })
-            } catch(error){
-                    return res.status(500).json({
+            } catch (error) {
+                  return res.status(500).json({
                         success: false,
                         message: error.message
                   })
             }
       }
 
-      async deleteEvent(req, res){
+      async deleteEvent(req, res) {
             try {
                   const id = req.params.id;
 
                   const event = await Event.findByIdAndDelete(id);
 
-                  if (!event){
+                  if (!event) {
                         return res.status(404).json({
                               success: false,
                               message: "No event with this id found"
@@ -118,7 +117,7 @@ class EventController {
                         message: "Event deleted successfully"
                   })
 
-            } catch(error){
+            } catch (error) {
                   return res.status(500).json({
                         success: false,
                         message: error.message
@@ -126,6 +125,62 @@ class EventController {
             }
       }
 
+      async updateEvent(req, res) {
+            const session = await mongoose.startSession();
+            try {
+                  session.startTransaction();
+
+                  const { name, date, venue } = req.body;
+
+                  if (!name || !date || !venue) {
+                        await session.abortTransaction();
+                        session.endSession();
+                        return res.status(400).json({
+                              success: false,
+                              message: "All fields are required",
+                              data: null
+                        });
+                  }
+
+                  const { id } = req.params;
+                  const event = await Event.findById(id);
+
+                  if (!event) {
+                        await session.abortTransaction();
+                        session.endSession();
+                        return res.status(400).json({
+                              success: false,
+                              message: "No event found with this id",
+                              data: null
+                        });
+                  }
+
+                  event.name = name;
+                  event.date = date;
+                  event.venue = venue;
+
+                  await session.commitTransaction();
+                  session.endSession();
+
+                  await event.save();
+
+                  return res.status(200).json({
+                        success: true,
+                        message: "Event details updated successfully",
+                        data: event
+                  })
+
+            } catch (error) {
+                  await session.abortTransaction();
+                  res.status(500).json({
+                        success: false,
+                        message: 'Error updating event',
+                        error: error.message
+                  });
+            } finally {
+                  session.endSession();
+            }
+      }
 }
 
 export default new EventController();
