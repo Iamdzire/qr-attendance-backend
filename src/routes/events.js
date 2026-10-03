@@ -10,8 +10,10 @@ const upload = multer({
     } 
 });
 
+// EVENT ENDPOINTS
 router.post('/', eventController.createEvent);
-
-router.post('/:id/codes', upload.single("file"), eventController.uploadCodes);
+router.get('/', eventController.getAllEvents);
+router.get('/:id', eventController.getEventById);
+router.delete('/:id', eventController.deleteEvent);
 
 export default router;

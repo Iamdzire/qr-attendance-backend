@@ -40,90 +40,92 @@ class EventController {
 
             } catch(error) {
                   await session.abortTransaction();
-                  
-                  console.error("create event error", error)
                   res.status(500).json({ success: false,
                         message: 'Error creating event', 
                         error: error.message });
             } finally {
-session.endSession();
+                  session.endSession();
             }
       }
 
-      async uploadCodes(req, res){
-            const session = await mongoose.startSession();
+      async getAllEvents (req, res){
             try {
-                  session.startTransaction();
+                  const events = await Event.find();
 
-                  const { id } = req.params;
-
-                  const event = await Event.findById(id).session(session);
-
-                  if (!event){
-                        await session.abortTransaction();
+                  if (!events){
                         return res.status(404).json({
                               success: false,
-                              message: "Event not found"
-                        });
+                              message: "No event found"
+                        })
                   }
 
-                  if (!req.file){
-                        await session.abortTransaction();
-                  return res.status(400).json({
-                        success: false,
-                        message: "Please upload a CSV file"
-                  });        
-            }
-
-            const codes = [];
-
-            await new Promise((resolve, reject)=>{
-                  Readable.from(req.file.buffer).pipe(csvParser()).on("data", (row) => {
-                        const code = row.code?.trim();
-
-                        if (code){
-                              codes.push({
-                                    event: event._id,
-                                    code,
-                              });
-                        }
+                  return res.status(200).json({
+                        success: true,
+                        message: "All events fetched successfully",
+                        event: events
                   })
-                  .on("end", resolve)
-                  .on("error", reject);
-            })
 
-            if (codes.length === 0) {
-                  await session.abortTransaction();
-                  return res.status(400).json({
+            } catch(error){
+
+                  res.status(500).json({
                         success: false,
-                        message: "No valid ticket codes found in the uploaded file"
-                  });
-            }
-
-            // Bulk insert
-
-            const insertedCodes = await TicketCode.insertMany(codes, {session,
-                  ordered: false,
-            });
-
-            await session.commitTransaction();
-
-            return res.status(201).json({
-success: true,
-message: "Ticket codes uploaded successfully",
-inserted: insertedCodes.length,
-            })
-
-            } catch(error) {
-                  await session.abortTransaction();
-                  res.status(500).json({ 
-                        success: false,
-                        message: 'Failed to upload ticket codes',
-                        error: error.message });
-            } finally {
-                  await session.endSession();
+                        message: error.message
+                  })
             }
       }
+
+      async getEventById(req, res){
+            try {
+                  const id = req.params.id;
+
+                  const event = await Event.findById(id);
+
+                  if (!event){
+                        return res.status(404).json({
+                              success: false,
+                              message: "No event found with this id"
+                        })
+                  }
+
+                  return res.status(200).json({
+                        success: true,
+                        message: "Event found and fetched sucessfully",
+                        event: event
+                  })
+            } catch(error){
+                    return res.status(500).json({
+                        success: false,
+                        message: error.message
+                  })
+            }
+      }
+
+      async deleteEvent(req, res){
+            try {
+                  const id = req.params.id;
+
+                  const event = await Event.findByIdAndDelete(id);
+
+                  if (!event){
+                        return res.status(404).json({
+                              success: false,
+                              message: "No event with this id found"
+                        })
+                  }
+
+                  return res.status(200).json({
+                        success: true,
+                        message: "Event deleted successfully"
+                  })
+
+            } catch(error){
+                  return res.status(500).json({
+                        success: false,
+                        message: error.message
+                  })
+            }
+      }
+
 }
 
 export default new EventController();
