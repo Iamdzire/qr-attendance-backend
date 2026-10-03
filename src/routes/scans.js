@@ -1,9 +1,8 @@
 import express from 'express';
+import { validateTicket } from '../controllers/scan.js';
+
 const router = express.Router();
 
-// Temporary test route
-router.get('/test', (req, res) => {
-    res.json({ message: "Route entry point successfully mounted using ES Modules!" });
-});
+router.post('/scan', validateTicket);
 
-export default router; // Exporting using ES Modules syntax
+export default router;
