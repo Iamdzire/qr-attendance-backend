@@ -173,6 +173,7 @@ export const checkInTicket = async ({ ticket, event_id, scannedBy, gate }) => {
       statusCode: 409,
       body: {
         status: 'duplicate',
+        message: 'Ticket has already been used',  
         ticketCode: ticket.code_string,
         firstCheckedInAt: firstScan ? firstScan.createdAt : null,
       },
@@ -191,7 +192,12 @@ export const checkInTicket = async ({ ticket, event_id, scannedBy, gate }) => {
 
     return {
       statusCode: 200,
-      body: { status: 'valid', ticketCode: claimed.code_string, checkedInAt: scan.createdAt },
+      body: {
+             status: 'valid',
+             message: 'Ticket is valid',
+             ticketCode: claimed.code_string,
+             checkedInAt: scan.createdAt,
+     },
     };
   } catch (saveError) {
     // If the record failed to save, put the ticket back so the person
