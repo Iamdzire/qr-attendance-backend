@@ -140,3 +140,63 @@ export const getEventAttendance = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+/* ======================================================================
+   FRAUD PREVENTION (owner: Maddiiedev)
+   Call this AFTER the right ticket has been found for the right event.
+   Returns { statusCode, body }; it does NOT send the response itself.
+   ====================================================================== */
+export const checkInTicket = async ({ ticket, event_id, scannedBy, gate }) => {
+  // One atomic step: only an UNUSED ticket can be changed, so two scanners
+  // can never both succeed on the same ticket.
+  const claimed = await Ticket.findOneAndUpdate(
+    { _id: ticket._id, status: 'unused' },
+    { $set: { status: 'used' } },
+    { new: true }
+  );
+
+  // Not claimed: already used, so block entry.
+  if (!claimed) {
+    const firstScan = await Scan.findOne({ ticket_id: ticket._id, scan_result: 'valid' })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    await Scan.create({
+      ticket_id: ticket._id,
+      event_id,
+      scanned_by: scannedBy,
+      scan_result: 'duplicate',
+      ...(gate && { gate_label: gate }),
+    });
+
+    return {
+      statusCode: 409,
+      body: {
+        status: 'duplicate',
+        ticketCode: ticket.code_string,
+        firstCheckedInAt: firstScan ? firstScan.createdAt : null,
+      },
+    };
+  }
+
+  // Claimed: record the check-in.
+  try {
+    const scan = await Scan.create({
+      ticket_id: ticket._id,
+      event_id,
+      scanned_by: scannedBy,
+      scan_result: 'valid',
+      ...(gate && { gate_label: gate }),
+    });
+
+    return {
+      statusCode: 200,
+      body: { status: 'valid', ticketCode: claimed.code_string, checkedInAt: scan.createdAt },
+    };
+  } catch (saveError) {
+    // If the record failed to save, put the ticket back so the person
+    // isn't locked out by a server hiccup.
+    await Ticket.updateOne({ _id: ticket._id }, { $set: { status: 'unused' } });
+    throw saveError;
+  }
+};
