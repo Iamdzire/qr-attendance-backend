@@ -152,7 +152,7 @@ export const checkInTicket = async ({ ticket, event_id, scannedBy, gate }) => {
   const claimed = await Ticket.findOneAndUpdate(
     { _id: ticket._id, status: 'unused' },
     { $set: { status: 'used' } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   // Not claimed: already used, so block entry.
