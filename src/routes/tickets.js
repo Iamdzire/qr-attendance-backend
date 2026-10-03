@@ -1,9 +1,18 @@
 import express from 'express';
+import multer from "multer";
+import ticketController from "../controllers/ticket.js";
 const router = express.Router();
-
-// Temporary test route
-router.get('/test', (req, res) => {
-    res.json({ message: "Route entry point successfully mounted using ES Modules!" });
+const upload = multer({ 
+    dest: 'uploads/',
+    storage: multer.memoryStorage(),
+    limits: {
+        filesize: 5 * 1024 * 1024 ,
+    } 
 });
 
-export default router; // Exporting using ES Modules syntax
+// TICKET ENDPOINTS
+// this is a bulk delete tickets endpoint
+router.delete('/:id/codes', ticketController.bulkDeleteTickets);
+router.post('/:id/codes', upload.single("file"), ticketController.batchUploadTickets);
+
+export default router;

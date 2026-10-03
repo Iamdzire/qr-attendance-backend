@@ -2,7 +2,11 @@ import mongoose from 'mongoose';
 
 const ticketSchema = new mongoose.Schema({
     code_string: { type: String, required: true },
-    event_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
+    event_id: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'Event', 
+        required: [true, "Event ID is required"] 
+    },
     status: { type: String, enum: ['unused', 'used'], default: 'unused' },
     source: { type: String, enum: ['CSV', 'manual'], default: 'manual' },
     qr_token: { type: String, default: null } 
