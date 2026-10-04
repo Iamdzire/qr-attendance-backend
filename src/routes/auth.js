@@ -1,9 +1,10 @@
 import express from 'express';
+import { registerUser, loginUser, verifyAccountCode } from '../controllers/user.js';
+
 const router = express.Router();
 
-// Temporary test route
-router.get('/test', (req, res) => {
-    res.json({ message: "Route entry point successfully mounted using ES Modules!" });
-});
+router.post('/register', registerUser);         
+router.post('/verify-code', verifyAccountCode);    
+router.post('/login', loginUser);               
 
-export default router; // Exporting using ES Modules syntax
+export default router;
