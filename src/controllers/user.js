@@ -157,3 +157,54 @@ export const loginUser = async (req, res) => {
 };
 
 
+// 🔄 4. POST /api/auth/resend-code
+// Fires when the user clicks "Resend Code"
+export const resendVerificationCode = async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: "Session missing. Please restart the sign-up process." });
+        }
+
+        const tempToken = authHeader.split(' ')[1];
+
+        try {
+            // Unpack the temporary token to find out who clicked the button
+            const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+            
+            const user = await User.findById(decoded.id);
+            if (!user) {
+                return res.status(404).json({ error: "User profile record not found." });
+            }
+
+            if (user.isVerified) {
+                return res.status(400).json({ error: "This account is already verified. Please proceed to log in." });
+            }
+
+            // Generate a brand-new 6-digit number string
+            const newRandomCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+            // Overwrite the old code in MongoDB with the new one
+            user.verificationCode = newRandomCode;
+            await user.save();
+
+            // Fire the new code to their  inbox instantly
+            try {
+                await sendVerificationEmail(user.email, user.name, newRandomCode);
+            } catch (mailError) {
+                console.log("⚠️ Resend mailer transport rejected request, but database code updated.");
+            }
+
+            return res.status(200).json({
+                message: "A fresh 6-digit verification code has been dispatched to your inbox!"
+            });
+
+        } catch (jwtError) {
+            return res.status(401).json({ error: "Your session has expired. Please sign up again." });
+        }
+
+    } catch (error) {
+        return res.status(500).json({ error: "Internal server error during code resend pipeline." });
+    }
+};
