@@ -13,7 +13,6 @@ const ticketSchema = new mongoose.Schema(
       ref: "Attendee",
       default: null,
     },
-
     status: { type: String, enum: ["unused", "used"], default: "unused" },
     source: { type: String, enum: ["CSV", "manual"], default: "manual" },
     qr_token: { type: String, default: null },

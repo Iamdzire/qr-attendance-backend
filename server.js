@@ -13,13 +13,13 @@ const app = express();
 
 // 🧱 GLOBAL MIDDLEWARE LAYERS
 
-// 1. Cross-Origin Resource Sharing (Allows your frontend to talk to your backend)
+// 1. Cross-Origin Resource Sharing (Allows frontend to talk to your backend)
 app.use(cors());
 
 // 2. JSON Parser (Parses standard JSON payloads from Postman/Frontend)
 app.use(express.json());
 
-// 3. URL-Encoded Parser (CRUCIAL: Allows your backend to read multi-part forms and CSV uploads)
+// 3. URL-Encoded Parser (CRUCIAL: Allows our backend to read multi-part forms and CSV uploads)
 app.use(express.urlencoded({ extended: true }));
 
 // Boot up MongoDB connection instantly on startup
