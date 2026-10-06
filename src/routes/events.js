@@ -1,20 +1,20 @@
 import express from 'express';
-import multer from "multer";
 import eventController from "../controllers/event.js";
+
+import upload from '../config/multer.js'
 const router = express.Router();
-const upload = multer({ 
-    dest: 'uploads/',
-    storage: multer.memoryStorage(),
-    limits: {
-        filesize: 5 * 1024 * 1024 ,
-    } 
-});
+
 
 // EVENT ENDPOINTS
-router.post('/', eventController.createEvent);
+router.post('/', upload.single("image"), eventController.createEvent);
 router.get('/', eventController.getAllEvents);
 router.get('/:id', eventController.getEventById);
 router.put('/:id', eventController.updateEvent);
 router.delete('/:id', eventController.deleteEvent);
+
+// EVENT TICKET ENDPOINTS
+router.get('/:id/codes', eventController.getEventTickets);
+router.delete('/:id/codes', eventController.bulkDeleteTickets);
+router.post('/:id/codes', upload.single("ticket"), eventController.batchUploadTickets);
 
 export default router;
