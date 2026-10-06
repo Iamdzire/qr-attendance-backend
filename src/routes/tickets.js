@@ -1,7 +1,6 @@
 import express from "express";
 import multer from "multer";
 import ticketController from "../controllers/ticket.js";
-import express from "express";
 import { verifyTicketCode } from "../controllers/verifyTicket.js";
 import { registerAttendee } from "../controllers/attendee.js";
 
