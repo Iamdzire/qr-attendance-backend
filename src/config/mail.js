@@ -32,3 +32,24 @@ export const sendVerificationEmail = async (userEmail, userName, sixDigitCode) =
 
     return transporter.sendMail(mailOptions);
 };
+
+
+// 🔑 Brand New: Sends the 6-digit password recovery code
+export const sendResetPasswordEmail = async (userEmail, userName, sixDigitCode) => {
+    const mailOptions = {
+        from: '"Group 13 Event System" <no-reply@group13events.com>',
+        to: userEmail,
+        subject: '🔒 Your Password Reset Code',
+        html: `
+            <div style="font-family: Arial, sans-serif; padding: 25px; border: 1px solid #e2e8f0; max-width: 550px; text-align: center; margin: 0 auto;">
+                <h2 style="color: #e53e3e;">Password Recovery Code</h2>
+                <p>Hello <strong>${userName}</strong>, use this code inside your reset screen to change your password:</p>
+                <div style="background: #fff5f5; letter-spacing: 10px; font-size: 36px; font-weight: bold; color: #e53e3e; padding: 15px; margin: 20px auto; max-width: 220px; border-radius: 8px; border: 2px dashed #feb2b2; text-indent: 10px;">
+                    ${sixDigitCode}
+                </div>
+                <p style="font-size: 11px; color: #a0aec0;">This code is valid for 15 minutes.</p>
+            </div>
+        `
+    };
+    return transporter.sendMail(mailOptions);
+};
