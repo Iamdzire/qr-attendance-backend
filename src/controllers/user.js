@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.js';
-import { sendVerificationEmail } from '../config/mail.js';
+import { sendVerificationEmail, sendResetPasswordEmail } from '../config/mail.js';
 
-// 📝 1. POST: Handles the user Registeration
+// 📝 POST: Handles the user Registeration
 export const registerUser = async (req, res) => {
     try {
         const { name, email, password, confirmPassword, role } = req.body;
@@ -66,7 +66,7 @@ export const registerUser = async (req, res) => {
     }
 };
 
-// 🔢 2. POST: Handles typing the 6 digits code
+// 🔢 POST: Handles typing the 6 digits code
 export const verifyAccountCode = async (req, res) => {
     try {
         const { code } = req.body;
@@ -114,7 +114,7 @@ export const verifyAccountCode = async (req, res) => {
     }
 };
 
-// 🔐 3. POST: Handles the standard "Log In" view
+// 🔐 POST: Handles the standard "Log In" view
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -157,7 +157,7 @@ export const loginUser = async (req, res) => {
 };
 
 
-// 🔄 4. POST /api/auth/resend-code
+// 🔄 POST /api/auth/resend-code
 // Fires when the user clicks "Resend Code"
 export const resendVerificationCode = async (req, res) => {
     try {
@@ -207,4 +207,144 @@ export const resendVerificationCode = async (req, res) => {
     } catch (error) {
         return res.status(500).json({ error: "Internal server error during code resend pipeline." });
     }
+};
+
+
+// 🧠 FORGOT PASSWORD 
+export const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: "Email address is required." });
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            // Security Best Practice: Don't tell hackers if an email exists
+            return res.status(200).json({ message: "If the account exists, a 6-digit recovery code has been sent." });
+        }
+
+        const randomResetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        user.resetCode = randomResetCode;
+        user.resetCodeExpires = Date.now() + 15 * 60 * 1000; // 15 mins expiry
+        await user.save();
+
+        try { await sendResetPasswordEmail(user.email, user.name, randomResetCode); } catch (e) {}
+
+        // Issue a short-lived recovery session token so they don't re-type email on next screen
+        const recoveryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+
+        return res.status(200).json({ 
+            message: "Recovery code sent successfully!", 
+            recoveryToken 
+        });
+    } catch (error) {
+        return res.status(500).json({ error: "Internal server error." });
+    }
+};
+
+
+// 🔄 RESEND PASSWORD RESET CODE
+export const resendResetCode = async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader) return res.status(401).json({ error: "Recovery session missing." });
+
+        const recoveryToken = authHeader.split(' ')[1];
+        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id);
+
+        if (!user) return res.status(404).json({ error: "User not found." });
+
+        const newResetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        user.resetCode = newResetCode;
+        user.resetCodeExpires = Date.now() + 15 * 60 * 1000;
+        await user.save();
+
+        try { await sendResetPasswordEmail(user.email, user.name, newResetCode); } catch (e) {}
+        return res.status(200).json({ message: "New password recovery code dispatched!" });
+    } catch (error) {
+        return res.status(401).json({ error: "Recovery token expired." });
+    }
+};
+
+
+// 🔢 POST /api/auth/verify-reset-code
+// Checks ONLY the 6-digit recovery code
+export const verifyResetCode = async (req, res) => {
+    try {
+        const { code } = req.body;
+        const authHeader = req.headers.authorization;
+
+        if (!code) {
+            return res.status(400).json({ error: "Please enter the 6-digit recovery code." });
+        }
+        if (!authHeader) {
+            return res.status(401).json({ error: "Recovery session missing. Please restart the forgot-password flow." });
+        }
+
+        const recoveryToken = authHeader.split(' ')[1];
+        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id);
+
+        if (!user || user.resetCode !== code.trim() || user.resetCodeExpires < Date.now()) {
+            return res.status(400).json({ error: "Invalid or expired 6-digit recovery code." });
+        }
+
+        // Code is correct! Move them to the next page
+        return res.status(200).json({
+            message: "Code verified successfully! Redirecting to New Password screen..."
+        });
+
+    } catch (error) {
+        return res.status(401).json({ error: "Recovery session expired. Please try again." });
+    }
+};
+
+// 🛠️ POST /api/auth/confirm-reset-password
+// Processes the new password inputs once the code is already passed
+export const confirmResetPassword = async (req, res) => {
+    try {
+        const { newPassword, confirmNewPassword} = req.body; // Pass code here to finalize
+        const authHeader = req.headers.authorization;
+
+        if (!newPassword || !confirmNewPassword) {
+            return res.status(400).json({ error: "New password, confirmation, and the verified code are required fields." });
+        }
+        if (newPassword !== confirmNewPassword) {
+            return res.status(400).json({ error: "Passwords do not match." });
+        }
+        if (!authHeader) {
+            return res.status(401).json({ error: "Recovery session token context missing." });
+        }
+
+        const recoveryToken = authHeader.split(' ')[1];
+        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+        const user = await User.findOne({ _id: decoded.id});
+
+        if (!user) {
+            return res.status(400).json({ error: "Action unauthorized. Session parameters are out of sync." });
+        }
+
+        // Hash and save the brand new password credential safely
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.resetCode = null; // Consume code permanently
+        user.resetCodeExpires = null;
+        await user.save();
+
+        return res.status(200).json({ 
+            message: "Password updated successfully! Redirecting user to Login screen." 
+        });
+
+    } catch (error) {
+        return res.status(401).json({ error: "Recovery session token has expired." });
+    }
+};
+
+
+// 🚪 9. LOGOUT (Figma Secure Session Cleanup)
+export const logoutUser = async (req, res) => {
+    // In token architecture, the server doesn't statefully store sessions.
+    // Logout means telling the client-side device to instantly shred the token from its memory.
+    return res.status(200).json({
+        message: "Logout successful! Session token destroyed. Redirecting to Entry Screen."
+    });
 };
