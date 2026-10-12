@@ -13,25 +13,10 @@ const upload = multer({
   },
 });
 
-router.get("/test", (req, res) => {
-  res.json({
-    message: "Ticket routes are working",
-  });
-});
-
 // VERIFY TICKET ENDPOINTS
 router.post("/verify-code", verifyTicketCode);
 
 // ATTENDEE REGISTER ENDPOINT
 router.post("/register", registerAttendee);
-
-// TICKET ENDPOINTS
-// this is a bulk delete tickets endpoint
-router.delete("/:id/codes", ticketController.bulkDeleteTickets);
-router.post(
-  "/:id/codes",
-  upload.single("file"),
-  ticketController.batchUploadTickets,
-);
 
 export default router;
