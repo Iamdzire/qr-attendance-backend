@@ -1,8 +1,13 @@
 import express from 'express';
+
 import { 
     registerUser, verifyAccountCode, resendVerificationCode, loginUser,
-    forgotPassword, resendResetCode, verifyResetCode, confirmResetPassword, logoutUser 
+    forgotPassword, resendResetCode, verifyResetCode, confirmResetPassword, logoutUser, updateUserProfile
 } from '../controllers/user.js';
+
+import {
+    requireAuth, requireOrganizer, requireStaff
+} from '../middleware/auth.js'
 
 const router = express.Router();
 
@@ -20,5 +25,8 @@ router.post('/confirm-reset-password', confirmResetPassword); // Screen B: Sets 
 
 // Session Closures
 router.post('/logout', logoutUser);
+
+// 🆕 Profile Management Path (Protected by requireAuth)
+router.put('/update-profile', requireAuth, updateUserProfile);
 
 export default router;
