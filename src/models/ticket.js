@@ -8,6 +8,13 @@ const ticketSchema = new mongoose.Schema(
       ref: "Event",
       required: true,
     },
+
+    attendee_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Attendee",
+      required: true,
+    },
+
     ticket_type_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "TicketType",
