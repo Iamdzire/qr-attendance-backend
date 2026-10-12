@@ -34,6 +34,7 @@ class TicketController {
               codes.push({
                 code_string: code,
                 event_id: event._id,
+                ticket_type_id: ticket_type_id,
                 source: "CSV",
               });
             }

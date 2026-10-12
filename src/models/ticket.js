@@ -8,6 +8,11 @@ const ticketSchema = new mongoose.Schema(
       ref: "Event",
       required: true,
     },
+    ticket_type_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TicketType",
+      required: true,
+    },
     attendee_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Attendee",
@@ -20,7 +25,14 @@ const ticketSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// Strictly prevents identical codes being registered twice within the same event
+// prevents duplicate ticket codes within the same event
 ticketSchema.index({ code_string: 1, event_id: 1 }, { unique: true });
 
+// help mongoDB find available codes for a selected category
+ticketSchema.index({
+  event_id: 1,
+  ticket_type_id: 1,
+  status: 1,
+  attendee_id: 1,
+});
 export default mongoose.model("Ticket", ticketSchema);
