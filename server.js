@@ -3,12 +3,11 @@ import express from "express";
 import cors from "cors";
 import connectDB from "./src/config/db.js";
 
-// Import our 4 core feature routers
 import authRoutes from "./src/routes/auth.js";
 import eventRoutes from "./src/routes/events.js";
 import ticketRoutes from "./src/routes/tickets.js";
-import scanRoutes from "./src/routes/scans.js";
 import ticketTypeRoutes from "./src/routes/ticketType.js";
+import scanRoutes from "./src/routes/scans.js";
 import attendeeRoutes from "./src/routes/attendees.js";
 
 const app = express();
