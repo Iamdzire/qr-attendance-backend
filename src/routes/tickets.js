@@ -1,6 +1,4 @@
 import express from "express";
-import multer from "multer";
-
 import { verifyTicketCode } from "../controllers/verifyTicket.js";
 
 const router = express.Router();
