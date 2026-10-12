@@ -9,7 +9,6 @@ import eventRoutes from "./src/routes/events.js";
 import ticketRoutes from "./src/routes/tickets.js";
 import scanRoutes from "./src/routes/scans.js";
 import attendeeRoutes from "./src/routes/attendees.js";
-import ticketTypeRoutes from "./src/routes/ticketType.js";
 
 const app = express();
 
@@ -33,7 +32,7 @@ app.use("/api/events", eventRoutes); // Handles Event Creation & CSV Uploads
 app.use("/api/tickets", ticketRoutes); // Handles Attendee Validation & signed QR strings
 app.use("/api/scans", scanRoutes); // Handles Real-time Gate Scanning & Dashboard Reports
 app.use("/api/attendees", attendeeRoutes); // Handles Attendee ticket details
-app.use("/api/ticket-types", ticketTypeRoutes); //Handles Ticket type creation, retrieval, and management
+
 // Base Health Check
 app.get("/", (req, res) => {
   res.json({
