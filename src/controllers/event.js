@@ -4,11 +4,9 @@ import TicketCode from '../models/ticket.js'
 import csvParser from 'csv-parser';
 import { Readable } from "stream";
 import uploadToCloudinary from '../utils/uploadToCloudinary.js'
-import TicketType from '../models/ticketType.js';
 class EventController {
      async createEvent(req, res) {
     const session = await mongoose.startSession();
-
     try {
         session.startTransaction();
 
@@ -80,6 +78,13 @@ class EventController {
     } catch (error) {
 
         await session.abortTransaction();
+
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: 'An event with this name already exists'
+            });
+      }
 
         console.error("CREATE EVENT ERROR:", error);
 
@@ -260,212 +265,214 @@ class EventController {
       }
 
       async batchUploadTickets(req, res) {
-            const session = await mongoose.startSession();
+    const session = await mongoose.startSession();
 
-            try {
-                  const { id } = req.params;
-                  const { ticketTypeId } = req.body;
+    try {
+        const { id } = req.params;
 
-                  // 1. Validate event ID
-                  if (!mongoose.isValidObjectId(id)) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Invalid event ID"
-                        });
-                  }
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid event ID'
+            });
+        }
 
-                  // 2. Validate ticket type ID
-                  if (!ticketTypeId) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Ticket type ID is required"
-                        });
-                  }
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Please upload a CSV file using the 'ticket' field"
+            });
+        }
 
-                  if (!mongoose.isValidObjectId(ticketTypeId)) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Invalid ticket type ID"
-                        });
-                  }
+        if (!req.file.originalname.toLowerCase().endsWith('.csv')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Only CSV files are allowed'
+            });
+        }
 
-                  // 3. Confirm a file was uploaded
-                  if (!req.file) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Please upload a CSV file using the 'ticket' field"
-                        });
-                  }
+        const event = await Event.findById(id);
 
-                  // 4. Validate file extension
-                  if (!req.file.originalname.toLowerCase().endsWith(".csv")) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Only CSV files are allowed"
-                        });
-                  }
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: 'Event not found'
+            });
+        }
 
-                  // 5. Find the event
-                  const event = await Event.findById(id);
+        const rows = await new Promise((resolve, reject) => {
+            const results = [];
 
-                  if (!event) {
-                        return res.status(404).json({
-                        success: false,
-                        message: "Event not found"
-                        });
-                  }
+            Readable.from(req.file.buffer)
+                .pipe(
+                    csvParser({
+                        mapHeaders: ({ header }) =>
+                            header.trim().toLowerCase()
+                    })
+                )
+                .on('data', (row) => results.push(row))
+                .on('end', () => resolve(results))
+                .on('error', reject);
+        });
 
-                  // 6. Find the ticket type and verify it belongs to this event
-                  const ticketType = await TicketType.findOne({
-                        _id: ticketTypeId,
-                        event_id: event._id
-                  });
+        if (rows.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'The CSV file is empty'
+            });
+        }
 
-                  if (!ticketType) {
-                        return res.status(404).json({
-                        success: false,
-                        message: "Ticket type not found for this event"
-                        });
-                  }
+        const allowedTicketTypes = new Map([
+            ['regular', 'Regular'],
+            ['vip', 'VIP'],
+            ['vvip', 'VVIP'],
+            ['premium', 'Premium']
+        ]);
 
-                  // 7. Parse the CSV
-                  const rows = await new Promise((resolve, reject) => {
-                        const results = [];
+        const uniqueCodes = new Set();
+        const duplicateInFile = new Set();
+        const invalidRows = [];
+        const invalidTicketTypes = [];
+        const validTickets = [];
 
-                        Readable.from(req.file.buffer)
-                        .pipe(
-                              csvParser({
-                                    mapHeaders: ({ header }) =>
-                                    header.trim().toLowerCase()
-                              })
-                        )
-                        .on("data", (row) => results.push(row))
-                        .on("end", () => resolve(results))
-                        .on("error", reject);
-                  });
+        for (const [index, row] of rows.entries()) {
+            const rowNumber = index + 2;
 
-                  if (rows.length === 0) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "The CSV file is empty"
-                        });
-                  }
+            const code = row.code?.trim();
+            const rawTicketType = row.ticket_type?.trim();
 
-                  // 8. Extract and validate ticket codes
-                  const uniqueCodes = new Set();
-                  const duplicateInFile = new Set();
-                  const invalidRows = [];
+            if (!code) {
+                invalidRows.push({
+                    row: rowNumber,
+                    reason: 'Missing ticket code'
+                });
 
-                  for (const [index, row] of rows.entries()) {
-                        const code = row.code?.trim();
-
-                        if (!code) {
-                        invalidRows.push(index + 2);
-                        continue;
-                        }
-
-                        if (uniqueCodes.has(code)) {
-                        duplicateInFile.add(code);
-                        continue;
-                        }
-
-                        uniqueCodes.add(code);
-                  }
-
-                  if (invalidRows.length > 0) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "Some CSV rows are missing a ticket code",
-                        invalidRows
-                        });
-                  }
-
-                  const codes = [...uniqueCodes];
-
-                  if (codes.length === 0) {
-                        return res.status(400).json({
-                        success: false,
-                        message: "No valid ticket codes found"
-                        });
-                  }
-
-                  // 9. Find codes already registered for this event
-                  const existingTickets = await TicketCode.find({
-                        event_id: event._id,
-                        code_string: { $in: codes }
-                  })
-                        .select("code_string")
-                        .lean();
-
-                  const existingCodes = new Set(
-                        existingTickets.map(ticket => ticket.code_string)
-                  );
-
-                  const newCodes = codes.filter(
-                        code => !existingCodes.has(code)
-                  );
-
-                  if (newCodes.length === 0) {
-                        return res.status(409).json({
-                        success: false,
-                        message: "All uploaded ticket codes already exist for this event",
-                        uploaded: codes.length,
-                        inserted: 0,
-                        duplicatesInFile: [...duplicateInFile],
-                        alreadyExists: [...existingCodes]
-                        });
-                  }
-
-                  // 10. Prepare documents
-                  const ticketDocuments = newCodes.map(code => ({
-                        code_string: code,
-                        event_id: event._id,
-                        ticket_type_id: ticketType._id,
-                        source: "CSV"
-                  }));
-
-                  // 11. Insert using a transaction
-                  session.startTransaction();
-
-                  await TicketCode.insertMany(ticketDocuments, {
-                        session,
-                        ordered: true
-                  });
-
-                  await session.commitTransaction();
-
-                  // 12. Return result
-                  return res.status(201).json({
-                        success: true,
-                        message: "Ticket codes uploaded successfully",
-                        eventId: event._id,
-                        ticketTypeId: ticketType._id,
-                        ticketType: ticketType.name,
-                        totalRows: rows.length,
-                        inserted: newCodes.length,
-                        duplicatesInFile: [...duplicateInFile],
-                        alreadyExists: [...existingCodes]
-                  });
-
-            } catch (error) {
-                  if (session.inTransaction()) {
-                        await session.abortTransaction();
-                  }
-
-                  console.error("Bulk ticket upload error:", error);
-
-                  return res.status(500).json({
-                        success: false,
-                        message: "Failed to upload ticket codes",
-                        error: error.message
-                  });
-
-            } finally {
-                  await session.endSession();
+                continue;
             }
-      }
 
+            if (!rawTicketType) {
+                invalidRows.push({
+                    row: rowNumber,
+                    code,
+                    reason: 'Missing ticket type'
+                });
 
+                continue;
+            }
+
+            const ticketType = allowedTicketTypes.get(
+                rawTicketType.toLowerCase()
+            );
+
+            if (!ticketType) {
+                invalidTicketTypes.push({
+                    row: rowNumber,
+                    code,
+                    ticket_type: rawTicketType,
+                    allowedTypes: [...allowedTicketTypes.values()]
+                });
+
+                continue;
+            }
+
+            if (uniqueCodes.has(code)) {
+                duplicateInFile.add(code);
+                continue;
+            }
+
+            uniqueCodes.add(code);
+
+            validTickets.push({
+                code_string: code,
+                ticket_type: ticketType,
+                event_id: event._id,
+                source: 'CSV'
+            });
+        }
+
+        if (invalidRows.length > 0 || invalidTicketTypes.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Some CSV rows contain invalid data',
+                invalidRows,
+                invalidTicketTypes
+            });
+        }
+
+        if (validTickets.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No valid ticket records found',
+                duplicatesInFile: [...duplicateInFile]
+            });
+        }
+
+        const codes = validTickets.map(ticket => ticket.code_string);
+
+        const existingTickets = await TicketCode.find({
+            event_id: event._id,
+            code_string: { $in: codes }
+        })
+            .select('code_string')
+            .lean();
+
+        const existingCodes = new Set(
+            existingTickets.map(ticket => ticket.code_string)
+        );
+
+        const newTickets = validTickets.filter(
+            ticket => !existingCodes.has(ticket.code_string)
+        );
+
+        if (newTickets.length === 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'All uploaded ticket codes already exist for this event',
+                totalRows: rows.length,
+                inserted: 0,
+                duplicatesInFile: [...duplicateInFile],
+                alreadyExists: [...existingCodes]
+            });
+        }
+
+        await session.withTransaction(async () => {
+            await TicketCode.insertMany(newTickets, {
+                session,
+                ordered: true
+            });
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Ticket codes uploaded successfully',
+            eventId: event._id,
+            totalRows: rows.length,
+            validUniqueRows: validTickets.length,
+            inserted: newTickets.length,
+            duplicatesInFile: [...duplicateInFile],
+            alreadyExists: [...existingCodes]
+        });
+
+    } catch (error) {
+
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: 'One or more ticket codes already exist for this event',
+                error: error.message
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to upload ticket codes',
+            error: error.message
+        });
+
+    } finally {
+        await session.endSession();
+    }
+}
 
       async getEventTickets(req, res) {
             try {
@@ -504,60 +511,69 @@ class EventController {
             }
 }
       
+
       async bulkDeleteTickets(req, res) {
-                  const session = await mongoose.startSession();
-                  try {
-                        session.startTransaction();
-                        const { id } = req.params;
+    const session = await mongoose.startSession();
+    try {
+        const { id } = req.params;
 
-                         if(!mongoose.isValidObjectId(id)){
-                         return res.status(404).json({
-                              success: false,
-                              message: "Invalid event Id"
-                        })
-                  };
-      
-                        const event = await Event.findById(id).session(session);
-      
-                        if (!event) {
-                              await session.abortTransaction();
-                              session.endSession();
-                              return res.status(400).json({
-                                    success: false,
-                                    message: 'Event not found',
-                              })
-                        }
-                        const bulkTicket = await TicketCode.deleteMany(
-                              { event_id: id }, { session }
-                        )
+        if (!mongoose.isValidObjectId(id)) {
 
-                        if (bulkTicket.deletedCount === 0) {
-                              await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid event ID'
+            });
+        }
 
-                              return res.status(404).json({
-                                    success: false,
-                                    message: "No ticket codes found for this event",
-                                    deleted: 0
-                              });
-                        }
-                        await session.commitTransaction();
-      
-                        return res.status(201).json({
-                              success: true,
-                              message: "Bulk ticket codes deleted successfully",
-                              deleted: bulkTicket.deletedCount
-                        })
-      
-                  } catch (error) {
-                        await session.abortTransaction();
-                        res.status(500).json({
-                              success: false,
-                              message: 'Error bulk deleting ticket codes',
-                              error: error.message
-                        });
-                  } finally {
-                        session.endSession();
-                  }
-            }
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: 'Event not found'
+            });
+        }
+
+        session.startTransaction();
+
+        const bulkTicket = await TicketCode.deleteMany(
+            { event_id: event._id },
+            { session }
+        );
+
+        if (bulkTicket.deletedCount === 0) {
+            await session.abortTransaction();
+
+            return res.status(404).json({
+                success: false,
+                message: 'No ticket codes found for this event',
+                deleted: 0
+            });
+        }
+
+        await session.commitTransaction();
+
+        return res.status(200).json({
+            success: true,
+            message: 'Bulk ticket codes deleted successfully',
+            eventId: event._id,
+            deleted: bulkTicket.deletedCount
+        });
+
+    } catch (error) {
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Error bulk deleting ticket codes',
+            error: error.message
+        });
+
+    } finally {
+        await session.endSession();
+    }
+}
       }
 export default new EventController();
