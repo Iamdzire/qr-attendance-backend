@@ -6,8 +6,7 @@ import connectDB from './src/config/db.js';
 // Import our 4 core feature routers
 import authRoutes from './src/routes/auth.js';
 import eventRoutes from './src/routes/events.js';
-import ticketRoutes from './src/routes/tickets.js'; 
-import ticketTypeRoutes from './src/routes/ticketType.js'; 
+import ticketRoutes from './src/routes/tickets.js';  
 import scanRoutes from './src/routes/scans.js';     
 
 const app = express();
@@ -30,7 +29,6 @@ connectDB();
 app.use('/api/auth', authRoutes);       // Handles Login & Registration
 app.use('/api/events', eventRoutes);     // Handles Event Creation & CSV Uploads
 app.use('/api/tickets', ticketRoutes);   // Handles Attendee Validation & signed QR strings
-app.use("/api/ticket-types", ticketTypeRoutes);    //Handles Ticket type creation, retrieval, and management
 app.use('/api/scans', scanRoutes);       // Handles Real-time Gate Scanning & Dashboard Reports
 
 // Base Health Check
