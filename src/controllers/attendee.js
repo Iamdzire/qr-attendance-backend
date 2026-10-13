@@ -47,10 +47,10 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    if (event.status !== "active") {
+    if (event.status !== "upcoming") {
       return res.status(400).json({
         success: false,
-        message: "This event is not currently active.",
+        message: "This event is not open for registration.",
       });
     }
 
