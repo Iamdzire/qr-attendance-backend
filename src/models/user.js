@@ -1,10 +1,17 @@
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-    name: { type: String, required: [true, "Name is required"], trim: true },
-    email: { type: String, required: [true, "Email is required"], unique: true, lowercase: true, trim: true },
-    password: { type: String, required: [true, "Password is required"] },
-    role: { type: String, enum: ['organizer', 'staff'], required: [true, "Role is required"] }
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { type: String, required: function() { return !this.googleId; } }, 
+    role: { type: String, enum: ['organizer', 'staff'], required: true },
+    verificationCode: { type: String, default: null }, 
+    isVerified: { type: Boolean, default: false },
+    googleId: { type: String, default: null },
+    
+    // 🔑 Added for the Forgot Password 6-Digit Box loop
+    resetCode: { type: String, default: null },
+    resetCodeExpires: { type: Date, default: null }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

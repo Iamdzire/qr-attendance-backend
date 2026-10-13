@@ -1,10 +1,22 @@
-import express from 'express';
-const router = express.Router();
+import express from "express";
+import multer from "multer";
+import ticketController from "../controllers/ticket.js";
+import { verifyTicketCode } from "../controllers/verifyTicket.js";
+import { registerAttendee } from "../controllers/attendee.js";
 
-// TICKET ENDPOINTS
-// this is a bulk delete tickets endpoint
-router.get('/', (req, res) => res.send({
-    message: "This is a dummy data"
-}));
+const router = express.Router();
+const upload = multer({
+  dest: "uploads/",
+  storage: multer.memoryStorage(),
+  limits: {
+    filesize: 5 * 1024 * 1024,
+  },
+});
+
+// VERIFY TICKET ENDPOINTS
+router.post("/verify-code", verifyTicketCode);
+
+// ATTENDEE REGISTER ENDPOINT
+router.post("/register", registerAttendee);
 
 export default router;
