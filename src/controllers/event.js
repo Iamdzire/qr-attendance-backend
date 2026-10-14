@@ -1,80 +1,71 @@
-import Event from '../models/event.js'
-import mongoose from 'mongoose'
-import TicketCode from '../models/ticket.js'
-import csvParser from 'csv-parser';
+import Event from "../models/event.js";
+import mongoose from "mongoose";
+import TicketCode from "../models/ticket.js";
+import csvParser from "csv-parser";
 import { Readable } from "stream";
 import uploadToCloudinary from '../utils/uploadToCloudinary.js'
 class EventController {
-     async createEvent(req, res) {
+  async createEvent(req, res) {
     const session = await mongoose.startSession();
     try {
-        session.startTransaction();
+      session.startTransaction();
 
-        const {
-            name,
-            description,
+      const { name, description, date, startAt, venue, status, organizer_id } =
+        req.body;
+
+      if (
+        !name ||
+        !description ||
+        !date ||
+        !startAt ||
+        !venue ||
+        !organizer_id
+      ) {
+        await session.abortTransaction();
+
+        return res.status(400).json({
+          success: false,
+          message: "All fields are required",
+          data: null,
+        });
+      }
+
+      if (!req.file) {
+        await session.abortTransaction();
+
+        return res.status(400).json({
+          success: false,
+          message: "Image is required, please upload an image",
+        });
+      }
+
+      const uploadResult = await uploadToCloudinary(req.file.buffer);
+
+      const imageUrl = uploadResult.secure_url;
+
+      const event = await Event.create(
+        [
+          {
+            name: name.trim(),
+            description: description.trim(),
             date,
             startAt,
-            venue,
+            venue: venue.trim(),
+            image: imageUrl,
             status,
-            organizer_id
-        } = req.body;
+            organizer_id,
+          },
+        ],
+        { session },
+      );
 
+      await session.commitTransaction();
 
-        if (
-            !name ||
-            !description ||
-            !date ||
-            !startAt ||
-            !venue ||
-            !organizer_id
-        ) {
-            await session.abortTransaction();
-
-            return res.status(400).json({
-                success: false,
-                message: "All fields are required",
-                data: null
-            });
-        }
-
-        if (!req.file) {
-            await session.abortTransaction();
-
-            return res.status(400).json({
-                success: false,
-                message: "Image is required, please upload an image"
-            });
-        }
-
-        const uploadResult = await uploadToCloudinary(
-            req.file.buffer
-        );
-
-        const imageUrl = uploadResult.secure_url;
-
-        const event = await Event.create(
-            [{
-                name: name.trim(),
-                description: description.trim(),
-                date,
-                startAt,
-                venue: venue.trim(),
-                image: imageUrl,
-                status,
-                organizer_id
-            }],
-            { session }
-        );
-
-        await session.commitTransaction();
-
-        return res.status(201).json({
-            success: true,
-            message: "Event created successfully",
-            data: event[0]
-        });
-
+      return res.status(201).json({
+        success: true,
+        message: "Event created successfully",
+        data: event[0],
+      });
     } catch (error) {
 
         await session.abortTransaction();
@@ -86,183 +77,178 @@ class EventController {
             });
       }
 
-        console.error("CREATE EVENT ERROR:", error);
+      console.error("CREATE EVENT ERROR:", error);
 
-        return res.status(500).json({
-            success: false,
-            message: "Error creating event",
-            error: error.message
-        });
-
+      return res.status(500).json({
+        success: false,
+        message: "Error creating event",
+        error: error.message,
+      });
     } finally {
-        await session.endSession();
+      await session.endSession();
     }
-}
+  }
 
-      async getAllEvents(req, res) {
-            try {
-                  const events = await Event.find().sort({ createdAt: -1 });
+  async getAllEvents(req, res) {
+    try {
+      const events = await Event.find().sort({ createdAt: -1 });
 
-                  if (!events) {
-                        return res.status(404).json({
-                              success: false,
-                              message: "No event found"
-                        })
-                  }
-
-                  if(events.length === 0){
-                        return res.status(400).json({
-                              success: false,
-                              message: "No event found"
-                        })
-                  }
-
-                  return res.status(200).json({
-                        success: true,
-                        message: "All events fetched successfully",
-                        event: events
-                  })
-
-            } catch (error) {
-
-                  res.status(500).json({
-                        success: false,
-                        message: error.message
-                  })
-            }
+      if (!events) {
+        return res.status(404).json({
+          success: false,
+          message: "No event found",
+        });
       }
 
-      async getEventById(req, res) {
-            try {
-                  const { id } = req.params;
-
-                   if(!mongoose.isValidObjectId(id)){
-                         return res.status(404).json({
-                              success: false,
-                              message: "Invalid event Id"
-                        })
-                  };
-
-                  const event = await Event.findById(id);
-
-                  if (!event) {
-                        return res.status(404).json({
-                              success: false,
-                              message: "No event found with this id"
-                        })
-                  }
-
-                  return res.status(200).json({
-                        success: true,
-                        message: "Event found and fetched sucessfully",
-                        event: event
-                  })
-            } catch (error) {
-                  return res.status(500).json({
-                        success: false,
-                        message: error.message
-                  })
-            }
+      if (events.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No event found",
+        });
       }
 
-      async deleteEvent(req, res) {
-            try {
-                  const id = req.params.id;
+      return res.status(200).json({
+        success: true,
+        message: "All events fetched successfully",
+        event: events,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
 
-                   if(!mongoose.isValidObjectId(id)){
-                         return res.status(404).json({
-                              success: false,
-                              message: "Invalid event Id"
-                        })
-                  };
+  async getEventById(req, res) {
+    try {
+      const { id } = req.params;
 
-                  const event = await Event.findByIdAndDelete(id);
-
-                  if (!event) {
-                        return res.status(404).json({
-                              success: false,
-                              message: "No event with this id found"
-                        })
-                  }
-
-                  return res.status(200).json({
-                        success: true,
-                        message: "Event deleted successfully"
-                  })
-
-            } catch (error) {
-                  return res.status(500).json({
-                        success: false,
-                        message: error.message
-                  })
-            }
+      if (!mongoose.isValidObjectId(id)) {
+        return res.status(404).json({
+          success: false,
+          message: "Invalid event Id",
+        });
       }
 
-      async updateEvent(req, res) {
-            const session = await mongoose.startSession();
-            try {
-                  session.startTransaction();
+      const event = await Event.findById(id);
 
-                    const { id } = req.params;
-
-                   if(!mongoose.isValidObjectId(id)){
-                         return res.status(404).json({
-                              success: false,
-                              message: "Invalid event Id"
-                        })
-                  };
-
-                  const { name, description, date, startAt, venue } = req.body;
-
-                  if (!name || !description || !date || !startAt || !venue) {
-                        await session.abortTransaction();
-                        session.endSession();
-                        return res.status(400).json({
-                              success: false,
-                              message: "All fields are required",
-                              data: null
-                        });
-                  }
-
-                  const event = await Event.findById(id);
-
-                  if (!event) {
-                        await session.abortTransaction();
-                        session.endSession();
-                        return res.status(400).json({
-                              success: false,
-                              message: "No event found with this id",
-                              data: null
-                        });
-                  }
-
-                  event.name = name;
-                  event.description = description;
-                  event.date = date;
-                  event.startAt = startAt;
-                  event.venue = venue;
-
-                  await event.save();
-
-                  await session.commitTransaction();
-
-                  return res.status(200).json({
-                        success: true,
-                        message: "Event details updated successfully",
-                        data: event
-                  })
-
-            } catch (error) {
-                  await session.abortTransaction();
-                  res.status(500).json({
-                        success: false,
-                        message: 'Error updating event',
-                        error: error.message
-                  });
-            } finally {
-                  session.endSession();
-            }
+      if (!event) {
+        return res.status(404).json({
+          success: false,
+          message: "No event found with this id",
+        });
       }
+
+      return res.status(200).json({
+        success: true,
+        message: "Event found and fetched sucessfully",
+        event: event,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  async deleteEvent(req, res) {
+    try {
+      const id = req.params.id;
+
+      if (!mongoose.isValidObjectId(id)) {
+        return res.status(404).json({
+          success: false,
+          message: "Invalid event Id",
+        });
+      }
+
+      const event = await Event.findByIdAndDelete(id);
+
+      if (!event) {
+        return res.status(404).json({
+          success: false,
+          message: "No event with this id found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Event deleted successfully",
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  async updateEvent(req, res) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      const { id } = req.params;
+
+      if (!mongoose.isValidObjectId(id)) {
+        return res.status(404).json({
+          success: false,
+          message: "Invalid event Id",
+        });
+      }
+
+      const { name, description, date, startAt, venue } = req.body;
+
+      if (!name || !description || !date || !startAt || !venue) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: "All fields are required",
+          data: null,
+        });
+      }
+
+      const event = await Event.findById(id);
+
+      if (!event) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: "No event found with this id",
+          data: null,
+        });
+      }
+
+      event.name = name;
+      event.description = description;
+      event.date = date;
+      event.startAt = startAt;
+      event.venue = venue;
+
+      await event.save();
+
+      await session.commitTransaction();
+
+      return res.status(200).json({
+        success: true,
+        message: "Event details updated successfully",
+        data: event,
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      res.status(500).json({
+        success: false,
+        message: "Error updating event",
+        error: error.message,
+      });
+    } finally {
+      session.endSession();
+    }
+  }
 
       async batchUploadTickets(req, res) {
     const session = await mongoose.startSession();
@@ -474,27 +460,29 @@ class EventController {
     }
 }
 
-      async getEventTickets(req, res) {
-            try {
-            const { id } = req.params;
+  async getEventTickets(req, res) {
+    try {
+      const { id } = req.params;
 
-             if(!mongoose.isValidObjectId(id)){
-                         return res.status(404).json({
-                              success: false,
-                              message: "Invalid event Id"
-                        })
-                  };
+      if (!mongoose.isValidObjectId(id)) {
+        return res.status(404).json({
+          success: false,
+          message: "Invalid event Id",
+        });
+      }
 
-            const tickets = await TicketCode.find({
-                  event_id: id
-            }).sort({ status: 1 }).select("-event_id -qr_token -source");
+      const tickets = await TicketCode.find({
+        event_id: id,
+      })
+        .sort({ status: 1 })
+        .select("-event_id -qr_token -source");
 
-            if (tickets.length === 0){
-                return res.status(404).json({
-                  success: false,
-                  message: "No ticket found for this event",   
-            });  
-            }
+      if (tickets.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No ticket found for this event",
+        });
+      }
 
             return res.status(200).json({
                   success: true,
