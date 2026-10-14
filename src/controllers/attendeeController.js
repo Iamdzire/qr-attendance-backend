@@ -3,7 +3,6 @@ import Attendee from "../models/attendee.js";
 import Ticket from "../models/ticket.js";
 import Event from "../models/event.js";
 
-
 export const getAttendeeTicket = async (req, res) => {
   try {
     const { attendeeId, eventId } = req.params;
@@ -80,8 +79,7 @@ export const getAttendeeTicket = async (req, res) => {
           id: ticket._id,
           code: ticket.code_string,
           status: ticket.status,
-          qrGenerated: Boolean(ticket.qr_token),
-          ticket_type: ticket.ticket_type
+          ticket_type: ticket.ticket_type,
         },
       },
     });
