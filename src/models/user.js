@@ -7,7 +7,6 @@ const userSchema = new mongoose.Schema({
     role: { type: String, enum: ['organizer', 'staff'], required: true },
     verificationCode: { type: String, default: null }, 
     isVerified: { type: Boolean, default: false },
-    googleId: { type: String, default: null },
     
     // 🔑 Added for the Forgot Password 6-Digit Box loop
     resetCode: { type: String, default: null },
