@@ -22,8 +22,8 @@ const eventSchema = new mongoose.Schema(
     image: { type: String, required: [true, "Event image is required"] },
     status: {
       type: String,
-      enum: ["upcoming", "ongoing", "completed"],
-      default: "upcoming",
+      enum: ["active", "inactive"],
+      default: "active",
     },
     organizer_id: {
       type: mongoose.Schema.Types.ObjectId,
