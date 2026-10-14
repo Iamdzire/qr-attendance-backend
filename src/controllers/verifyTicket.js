@@ -116,7 +116,7 @@ export const verifyTicketCode = async (req, res) => {
       eventDate: event.date,
       eventVenue: event.venue,
       ticketCode: ticket.code_string,
-      ticketType: ticket.ticket_type?.name,
+      ticketType: ticket.ticket_type,
       qrCode,
     });
 
