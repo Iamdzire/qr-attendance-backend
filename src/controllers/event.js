@@ -287,19 +287,26 @@ class EventController {
         }
 
         const rows = await new Promise((resolve, reject) => {
-            const results = [];
+    const results = [];
 
-            Readable.from(req.file.buffer)
-                .pipe(
-                    csvParser({
-                        mapHeaders: ({ header }) =>
-                            header.trim().toLowerCase()
-                    })
-                )
-                .on('data', (row) => results.push(row))
-                .on('end', () => resolve(results))
-                .on('error', reject);
-        });
+    Readable.from(req.file.buffer)
+        .pipe(
+    csvParser({
+        separator: req.file.buffer.includes(0x09) ? '\t' : ',',
+
+        mapHeaders: ({ header }) =>
+            header
+                .replace(/^\uFEFF/, '')
+                .trim()
+                .toLowerCase()
+    })
+)
+        .on('data', (row) => {
+            results.push(row);
+        })
+        .on('end', () => resolve(results))
+        .on('error', reject);
+});
 
         if (rows.length === 0) {
             return res.status(400).json({
