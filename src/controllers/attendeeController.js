@@ -80,7 +80,6 @@ export const getAttendeeTicket = async (req, res) => {
           code: ticket.code_string,
           status: ticket.status,
           ticket_type: ticket.ticket_type,
-          qrGenerated: Boolean(ticket.qr_token),
         },
       },
     });
