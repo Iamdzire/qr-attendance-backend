@@ -43,6 +43,7 @@ export const sendTicketCodeEmail = async ({
           <strong>Event:</strong> ${eventName}<br>
           <strong>Date:</strong> ${new Date(eventDate).toLocaleString()}<br>
           <strong>Venue:</strong> ${eventVenue}
+          <strong>Ticket_Type:</strong> ${ticketType}
         </p>
 
         <h3>Your Ticket</h3>
@@ -86,7 +87,7 @@ export const sendQrEmail = async ({
   eventDate,
   eventVenue,
   ticketCode,
-  ticketType, // <-- Make sure this is here
+  ticketType,
   qrCode,
 }) => {
   if (!attendeeEmail) {
