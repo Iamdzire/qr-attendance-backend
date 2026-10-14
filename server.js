@@ -3,12 +3,11 @@ import express from "express";
 import cors from "cors";
 import connectDB from "./src/config/db.js";
 
-import authRoutes from "./src/routes/auth.js";
-import eventRoutes from "./src/routes/events.js";
-import ticketRoutes from "./src/routes/tickets.js";
-import ticketTypeRoutes from "./src/routes/ticketType.js";
-import scanRoutes from "./src/routes/scans.js";
-import attendeeRoutes from "./src/routes/attendees.js";
+// Import our 4 core feature routers
+import authRoutes from './src/routes/auth.js';
+import eventRoutes from './src/routes/events.js';
+import ticketRoutes from './src/routes/tickets.js';  
+import scanRoutes from './src/routes/scans.js';     
 
 const app = express();
 
@@ -27,12 +26,10 @@ app.use(express.urlencoded({ extended: true }));
 connectDB();
 
 // 🔗 DIRECT ROUTE PRE-LINKING (Aligned with PRD Section 16)
-app.use("/api/auth", authRoutes); // Handles Login & Registration
-app.use("/api/events", eventRoutes); // Handles Event Creation & CSV Uploads
-app.use("/api/tickets", ticketRoutes); // Handles Attendee Validation & signed QR strings
-app.use("/api/ticket-types", ticketTypeRoutes); //Handles Ticket type creation, retrieval, and management
-app.use("/api/scans", scanRoutes); // Handles Real-time Gate Scanning & Dashboard Reports
-app.use("/api/attendees", attendeeRoutes); // Handles Attendee ticket details
+app.use('/api/auth', authRoutes);       // Handles Login & Registration
+app.use('/api/events', eventRoutes);     // Handles Event Creation & CSV Uploads
+app.use('/api/tickets', ticketRoutes);   // Handles Attendee Validation & signed QR strings
+app.use('/api/scans', scanRoutes);       // Handles Real-time Gate Scanning & Dashboard Reports
 
 // Base Health Check
 app.get("/", (req, res) => {

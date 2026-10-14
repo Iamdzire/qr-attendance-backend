@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Attendee from "../models/attendee.js";
 import Ticket from "../models/ticket.js";
 import Event from "../models/event.js";
-import TicketType from "../models/ticketType.js";
+
 
 export const getAttendeeTicket = async (req, res) => {
   try {
@@ -56,11 +56,6 @@ export const getAttendeeTicket = async (req, res) => {
       });
     }
 
-    // Retrieve the ticket category
-    const ticketType = await TicketType.findById(ticket.ticket_type_id).select(
-      "name description price",
-    );
-
     return res.status(200).json({
       success: true,
       message: "Attendee ticket retrieved successfully",
@@ -86,14 +81,7 @@ export const getAttendeeTicket = async (req, res) => {
           code: ticket.code_string,
           status: ticket.status,
           qrGenerated: Boolean(ticket.qr_token),
-          ticketType: ticketType
-            ? {
-                id: ticketType._id,
-                name: ticketType.name,
-                description: ticketType.description,
-                price: ticketType.price,
-              }
-            : null,
+          ticket_type: ticket.ticket_type
         },
       },
     });
