@@ -1,45 +1,90 @@
+import mongoose from "mongoose";
 import Ticket from "../models/ticket.js";
 import Event from "../models/event.js";
+import TicketType from "../models/ticketType.js";
 import Attendee from "../models/attendee.js";
-import nodemailer from "nodemailer";
+import { sendTicketCodeEmail } from "../services/emailService.js";
 
 export const registerAttendee = async (req, res) => {
   try {
-    const { eventId, name, email, phone } = req.body;
+    const { eventId, firstName, lastName, email, phone, ticket_type_id } =
+      req.body;
 
-    // Validate required information
-    if (!eventId || !name || !email || !phone) {
+    // 1. Validate required fields.
+    if (
+      !eventId ||
+      !firstName?.trim() ||
+      !lastName?.trim() ||
+      !email?.trim() ||
+      !phone?.trim() ||
+      !ticket_type_id
+    ) {
       return res.status(400).json({
         success: false,
-        message: "eventId, name, email, phone ",
+        message:
+          "Event ID, firstName,lastName, email, phone, and ticket type are required.",
       });
     }
 
-    //  Confirm that the event exists
+    // 2. Validate MongoDB IDs.
+    if (
+      !mongoose.isValidObjectId(eventId) ||
+      !mongoose.isValidObjectId(ticket_type_id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID or ticket type ID.",
+      });
+    }
+
+    // 3. Confirm that the event exists.
     const event = await Event.findById(eventId);
 
     if (!event) {
       return res.status(404).json({
         success: false,
-        message: "Event not found",
+        message: "Event not found.",
       });
     }
 
-    // Look for the attendee
-    let attendee = await Attendee.findOne({
-      email: email.toLowerCase().trim(),
+    if (event.status !== "upcoming") {
+      return res.status(400).json({
+        success: false,
+        message: "This event is not open for registration.",
+      });
+    }
+
+    // 4. Confirm that the selected category belongs to this event.
+    const ticketType = await TicketType.findOne({
+      _id: ticket_type_id,
+      event_id: eventId,
+      status: "active",
     });
 
-    // Create attendee if they don't exist
+    if (!ticketType) {
+      return res.status(404).json({
+        success: false,
+        message: "Ticket category not found or unavailable for this event.",
+      });
+    }
+
+    // 5. Find or create the attendee.
+    const normalizedEmail = email.trim().toLowerCase();
+
+    let attendee = await Attendee.findOne({
+      email: normalizedEmail,
+    });
+
     if (!attendee) {
       attendee = await Attendee.create({
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: normalizedEmail,
         phone: phone.trim(),
       });
     }
 
-    // Check if attendee already has a ticket
+    // 6. Check whether the attendee already has a ticket for this event.
     const existingTicket = await Ticket.findOne({
       event_id: eventId,
       attendee_id: attendee._id,
@@ -48,16 +93,18 @@ export const registerAttendee = async (req, res) => {
     if (existingTicket) {
       return res.status(409).json({
         success: false,
-        message: "Attendee already has a ticket for this event",
+        message: "Attendee already has a ticket for this event.",
       });
     }
 
-    // Find an available ticket from the organizer's pool
+    // 7. Atomically assign an available code from the selected category.
     const ticket = await Ticket.findOneAndUpdate(
       {
         event_id: eventId,
+        ticket_type_id: ticket_type_id,
         attendee_id: null,
         status: "unused",
+        qr_token: null,
       },
       {
         $set: {
@@ -66,57 +113,82 @@ export const registerAttendee = async (req, res) => {
       },
       {
         returnDocument: "after",
+        runValidators: true,
       },
     );
 
-    // Check if a ticket was available
     if (!ticket) {
       return res.status(409).json({
         success: false,
-        message: "No available tickets for this event",
+        message: `No available ${ticketType.name} tickets for this event.`,
       });
     }
-    // send the ticket details to the attendee
+
+    // 8. Send the ticket code to the attendee.
     try {
       await sendTicketCodeEmail({
-        attendeeName: attendee.name,
+        attendeeName: `${attendee.firstName} ${attendee.lastName}`,
         attendeeEmail: attendee.email,
         eventName: event.name,
         eventDate: event.date,
         eventVenue: event.venue,
         ticketCode: ticket.code_string,
+        ticketType: ticketType.name,
       });
     } catch (emailError) {
       console.error("Ticket email failed:", emailError);
 
-      return res.status(500).json({
+      // Release the ticket so the attendee can safely retry.
+      await Ticket.updateOne(
+        {
+          _id: ticket._id,
+          attendee_id: attendee._id,
+          status: "unused",
+          qr_token: null,
+        },
+        {
+          $set: {
+            attendee_id: null,
+          },
+        },
+      );
+
+      return res.status(502).json({
         success: false,
-        message: "Ticket was assigned, but we could not send the ticket email",
+        message: "Ticket email delivery failed. Please try registering again.",
       });
     }
-    // Return the assigned ticket
+
+    // 9. Return registration details.
     return res.status(201).json({
       success: true,
-      message: "Registration successful. Ticket assigned.",
+      message: "Registration successful. Ticket code sent to your email.",
       data: {
         attendee: {
           id: attendee._id,
-          name: attendee.name,
+          firstName: attendee.firstName,
+          lastName: attendee.lastName,
           email: attendee.email,
           phone: attendee.phone,
+        },
+        event: {
+          id: event._id,
+          name: event.name,
+          date: event.date,
+          venue: event.venue,
         },
 
         ticket: {
           id: ticket._id,
           code: ticket.code_string,
           status: ticket.status,
+          ticketType: ticketType.name,
         },
 
-        event: {
-          id: event._id,
-          name: event.name,
-          date: event.date,
-          venue: event.venue,
+        ticketType: {
+          id: ticketType._id,
+          name: ticketType.name,
+          price: ticketType.price,
         },
       },
     });
@@ -125,85 +197,7 @@ export const registerAttendee = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to register attendee",
+      message: "Failed to register attendee.",
     });
   }
-};
-
-const transporter = nodemailer.createTransport({
-  host: process.env.MAIL_HOST,
-  port: Number(process.env.MAIL_PORT),
-  secure: Number(process.env.MAIL_PORT) === 465,
-
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASSWORD,
-  },
-});
-
-export const sendTicketCodeEmail = async ({
-  attendeeName,
-  attendeeEmail,
-  eventName,
-  eventDate,
-  eventVenue,
-  ticketCode,
-}) => {
-  const mailOptions = {
-    from: `"Event Ticketing System" <${process.env.MAIL_USER}>`,
-    to: attendeeEmail,
-
-    subject: `Your Ticket Code - ${eventName}`,
-
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>Registration Successful 🎟️</h2>
-
-        <p>Hello ${attendeeName},</p>
-
-        <p>
-          Your registration for <strong>${eventName}</strong>
-          was successful.
-        </p>
-
-        <h3>Event Details</h3>
-
-        <p>
-          <strong>Event:</strong> ${eventName}<br>
-          <strong>Date:</strong> ${new Date(eventDate).toLocaleString()}<br>
-          <strong>Venue:</strong> ${eventVenue}
-        </p>
-
-        <h3>Your Ticket</h3>
-
-        <p>
-          <strong>Ticket Code:</strong>
-        </p>
-
-        <div
-          style="
-            font-size: 28px;
-            font-weight: bold;
-            letter-spacing: 4px;
-            background: #f4f4f4;
-            padding: 15px;
-            display: inline-block;
-          "
-        >
-          ${ticketCode}
-        </div>
-
-        <p>
-          Keep this code safe. You will need it to verify your ticket
-          and generate your event QR code.
-        </p>
-
-        <p>
-          Thank you.
-        </p>
-      </div>
-    `,
-  };
-
-  return transporter.sendMail(mailOptions);
 };

@@ -18,10 +18,19 @@ export const getEventAttendance = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid event id' });
     }
 
-    // 2. Make sure the event exists
-    const event = await Event.findById(id).select('name date venue').lean();
+    // 2. Find the event only if it belongs to the authenticated organizer
+    const event = await Event.findOne({
+      _id: id,
+      organizer_id: req.user.id,
+    })
+      .select('name date venue')
+      .lean();
+
     if (!event) {
-      return res.status(404).json({ success: false, message: 'Event not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found',
+      });
     }
 
     // Aggregations do NOT auto-convert text ids, so we convert by hand
