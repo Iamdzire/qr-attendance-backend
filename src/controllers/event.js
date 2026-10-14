@@ -285,34 +285,27 @@ class EventController {
         });
       }
 
-      const rows = await new Promise((resolve, reject) => {
-        const results = [];
+        const rows = await new Promise((resolve, reject) => {
+    const results = [];
 
-        Readable.from(req.file.buffer)
-          .pipe(
-            csvParser({
-              separator: req.file.buffer.includes(0x09) ? "\t" : ",",
+    Readable.from(req.file.buffer)
+        .pipe(
+    csvParser({
+        separator: req.file.buffer.includes(0x09) ? '\t' : ',',
 
-              mapHeaders: ({ header }) =>
-                header
-                  .replace(/^\uFEFF/, "")
-                  .trim()
-                  .toLowerCase(),
-            }),
-          )
-          .on("data", (row) => {
+        mapHeaders: ({ header }) =>
+            header
+                .replace(/^\uFEFF/, '')
+                .trim()
+                .toLowerCase()
+    })
+)
+        .on('data', (row) => {
             results.push(row);
-          })
-          .on("end", () => resolve(results))
-          .on("error", reject);
-      });
-
-      if (rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: "The CSV file is empty",
-        });
-      }
+        })
+        .on('end', () => resolve(results))
+        .on('error', reject);
+});
 
       const allowedTicketTypes = new Map([
         ["regular", "Regular"],
