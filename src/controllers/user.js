@@ -1,427 +1,531 @@
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import User from '../models/user.js';
-import { sendVerificationEmail, sendResetPasswordEmail } from '../config/mail.js';
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import User from "../models/user.js";
+import {
+  sendVerificationEmail,
+  sendResetPasswordEmail,
+} from "../config/mail.js";
 
 // 📝 POST: Handles the user Registeration
 export const registerUser = async (req, res) => {
-    try {
-        const { firstName, lastName, email, password, confirmPassword, role } = req.body;
+  try {
+    const { firstName, lastName, email, password, confirmPassword, role } =
+      req.body;
 
-        if (!firstName || !lastName || !email || !password || !confirmPassword || !role) {
-            return res.status(400).json({ error: "All profile registration fields are required." });
-        }
-
-        if (password !== confirmPassword) {
-            return res.status(400).json({ error: "Passwords do not match. Check confirmation parameter." });
-        }
-
-        if (role !== 'organizer' && role !== 'staff') {
-            return res.status(400).json({ error: "Invalid role selection. Must match screen choices." });
-        }
-
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ error: "An account with this email address already exists." });
-        }
-
-        // Generate clean random digits and hash credentials
-        const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-
-
-        // Account is staged as unverified (isVerified: false)
-        const newUser = new User({
-            firstName,
-            lastName,
-            email,
-            password: hashedPassword,
-            role,
-            verificationCode: randomCode,
-            isVerified: false
-        });
-
-
-        // Dispatch background verification email
-        try {
-            await sendVerificationEmail(newUser.email, newUser.lastName, randomCode);
-        } catch (mailError) {
-            console.log("⚠️ Background mailer transport rejected request.");
-            return res.status(500).json({
-                error: mailError.message
-            });
-        }
-
-        await newUser.save();
-
-        // 🔑 Mint short-lived token so backend recognizes who is typing code 
-        const tempToken = jwt.sign(
-            { id: newUser._id },
-            process.env.JWT_SECRET,
-            { expiresIn: '15m' }
-        );
-
-        return res.status(201).json({
-            message: "Account staged! Redirecting to 6-digit email verification screen...",
-            tempToken
-        });
-
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
+    if (
+      !firstName ||
+      !lastName ||
+      !email ||
+      !password ||
+      !confirmPassword ||
+      !role
+    ) {
+      return res
+        .status(400)
+        .json({ error: "All profile registration fields are required." });
     }
+
+    if (password !== confirmPassword) {
+      return res
+        .status(400)
+        .json({
+          error: "Passwords do not match. Check confirmation parameter.",
+        });
+    }
+
+    if (role !== "organizer" && role !== "staff") {
+      return res
+        .status(400)
+        .json({ error: "Invalid role selection. Must match screen choices." });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res
+        .status(400)
+        .json({ error: "An account with this email address already exists." });
+    }
+
+    // Generate clean random digits and hash credentials
+    const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Account is staged as unverified (isVerified: false)
+    const newUser = new User({
+      firstName,
+      lastName,
+      email,
+      password: hashedPassword,
+      role,
+      verificationCode: randomCode,
+      isVerified: false,
+    });
+
+    // Dispatch background verification email
+    try {
+      await sendVerificationEmail(newUser.email, newUser.lastName, randomCode);
+    } catch (mailError) {
+      console.log("⚠️ Background mailer transport rejected request.");
+      return res.status(500).json({
+        error: mailError.message,
+      });
+    }
+
+    await newUser.save();
+
+    // 🔑 Mint short-lived token so backend recognizes who is typing code
+    const tempToken = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
+
+    return res.status(201).json({
+      message:
+        "Account staged! Redirecting to 6-digit email verification screen...",
+      tempToken,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 };
 
 // 🔢 POST: Handles typing the 6 digits code
 export const verifyAccountCode = async (req, res) => {
-    try {
-        const { code } = req.body;
-        const authHeader = req.headers.authorization;
+  try {
+    const { code } = req.body;
+    const authHeader = req.headers.authorization;
 
-        if (!code) {
-            return res.status(400).json({ error: "Please enter the 6-digit verification code." });
-        }
-
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: "Verification context missing. Restart your sign-up sequence." });
-        }
-
-        const tempToken = authHeader.split(' ')[1];
-
-        try {
-            // Unpack temporary context token to reveal user profile ID
-            const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-
-            const user = await User.findById(decoded.id);
-            if (!user) {
-                return res.status(404).json({ error: "User profile record not found." });
-            }
-
-            // Verify if digits typed in Postman match our database entry
-            if (user.verificationCode !== code.trim()) {
-                return res.status(400).json({ error: "Incorrect verification code. Please check your inbox details." });
-            }
-
-            // SUCCESS! Turn account status to active and erase temporary code
-            user.isVerified = true;
-            user.verificationCode = null;
-            await user.save();
-
-            return res.status(200).json({
-                message: "Email successfully verified! Your account is active. Redirecting to login view..."
-            });
-
-        } catch (jwtError) {
-            return res.status(401).json({ error: "Verification session expired. Please register again." });
-        }
-
-    } catch (error) {
-        return res.status(500).json({ error: "Internal verification processing error." });
+    if (!code) {
+      return res
+        .status(400)
+        .json({ error: "Please enter the 6-digit verification code." });
     }
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res
+        .status(401)
+        .json({
+          error: "Verification context missing. Restart your sign-up sequence.",
+        });
+    }
+
+    const tempToken = authHeader.split(" ")[1];
+
+    try {
+      // Unpack temporary context token to reveal user profile ID
+      const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+
+      const user = await User.findById(decoded.id);
+      if (!user) {
+        return res
+          .status(404)
+          .json({ error: "User profile record not found." });
+      }
+
+      // Verify if digits typed in Postman match our database entry
+      if (user.verificationCode !== code.trim()) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Incorrect verification code. Please check your inbox details.",
+          });
+      }
+
+      // SUCCESS! Turn account status to active and erase temporary code
+      user.isVerified = true;
+      user.verificationCode = null;
+      await user.save();
+
+      return res.status(200).json({
+        message:
+          "Email successfully verified! Your account is active. Redirecting to login view...",
+      });
+    } catch (jwtError) {
+      return res
+        .status(401)
+        .json({
+          error: "Verification session expired. Please register again.",
+        });
+    }
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ error: "Internal verification processing error." });
+  }
 };
 
 // 🔐 POST: Handles the standard "Log In" view
 export const loginUser = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({ error: "Email and password fields cannot be left blank." });
-        }
-
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(401).json({ error: "Invalid email or password credentials." });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (isMatch === false) {
-            return res.status(401).json({ error: "Invalid email or password credentials." });
-        }
-
-        // HARD LOCK ENFORCEMENT: Block login attempts if Screen 3 was bypassed!
-        if (user.isVerified === false) {
-            return res.status(403).json({ error: "Account unverified. Please complete your 6-digit email confirmation sequence first." });
-        }
-
-        // Issue permanent 24-hour access badge token carrying role permissions claims
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
-        return res.status(200).json({
-            message: "Welcome back! Login successful.",
-            token,
-            user: { id: user._id, name: user.name, role: user.role }
-        });
-
-    } catch (error) {
-        return res.status(500).json({ error: "Internal server authentication error." });
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ error: "Email and password fields cannot be left blank." });
     }
-};
 
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res
+        .status(401)
+        .json({ error: "Invalid email or password credentials." });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (isMatch === false) {
+      return res
+        .status(401)
+        .json({ error: "Invalid email or password credentials." });
+    }
+
+    // HARD LOCK ENFORCEMENT: Block login attempts if Screen 3 was bypassed!
+    if (user.isVerified === false) {
+      return res
+        .status(403)
+        .json({
+          error:
+            "Account unverified. Please complete your 6-digit email confirmation sequence first.",
+        });
+    }
+
+    // Issue permanent 24-hour access badge token carrying role permissions claims
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" },
+    );
+
+    return res.status(200).json({
+      message: "Welcome back! Login successful.",
+      token,
+      user: { id: user._id, name: user.name, role: user.role },
+    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ error: "Internal server authentication error." });
+  }
+};
 
 // 🔄 POST /api/auth/resend-code
 // Fires when the user clicks "Resend Code"
 export const resendVerificationCode = async (req, res) => {
-    try {
-        const authHeader = req.headers.authorization;
+  try {
+    const authHeader = req.headers.authorization;
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: "Session missing. Please restart the sign-up process." });
-        }
-
-        const tempToken = authHeader.split(' ')[1];
-
-        try {
-            // Unpack the temporary token to find out who clicked the button
-            const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-
-            const user = await User.findById(decoded.id);
-            if (!user) {
-                return res.status(404).json({ error: "User profile record not found." });
-            }
-
-            if (user.isVerified) {
-                return res.status(400).json({ error: "This account is already verified. Please proceed to log in." });
-            }
-
-            // Generate a brand-new 6-digit number string
-            const newRandomCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-            // Overwrite the old code in MongoDB with the new one
-            user.verificationCode = newRandomCode;
-
-            // Fire the new code to their  inbox instantly
-            try {
-                await sendVerificationEmail(user.email, user.lastName, newRandomCode);
-            } catch (mailError) {
-                console.log("⚠️ Resend mailer transport rejected request.");
-                return res.status(500).json({
-                    error: mailError.message
-                })
-            }
-
-            await user.save();
-
-            return res.status(200).json({
-                message: "A fresh 6-digit verification code has been dispatched to your inbox!"
-            });
-
-        } catch (jwtError) {
-            return res.status(401).json({ error: "Your session has expired. Please sign up again." });
-        }
-
-    } catch (error) {
-        return res.status(500).json({ error: "Internal server error during code resend pipeline." });
-    }
-};
-
-
-// 🧠 FORGOT PASSWORD 
-export const forgotPassword = async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ error: "Email address is required." });
-
-        const user = await User.findOne({ email });
-        if (!user) {
-            // Security Best Practice: Don't tell hackers if an email exists
-            return res.status(200).json({ message: "If the account exists, a 6-digit recovery code has been sent." });
-        }
-
-        const randomResetCode = Math.floor(100000 + Math.random() * 900000).toString();
-        user.resetCode = randomResetCode;
-        user.resetCodeExpires = Date.now() + 15 * 60 * 1000; // 15 mins expiry
-
-        try {
-            await sendResetPasswordEmail(user.email, user.lastName, randomResetCode);
-
-        } catch (e) {
-            return res.status(500).json({
-                error: e.message
-            })
-        }
-
-        await user.save();
-
-        // Issue a short-lived recovery session token so they don't re-type email on next screen
-        const recoveryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
-
-        return res.status(200).json({
-            message: "Recovery code sent successfully!",
-            recoveryToken
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res
+        .status(401)
+        .json({
+          error: "Session missing. Please restart the sign-up process.",
         });
-    } catch (error) {
-        return res.status(500).json({ error: "Internal server error." });
     }
+
+    const tempToken = authHeader.split(" ")[1];
+
+    try {
+      // Unpack the temporary token to find out who clicked the button
+      const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+
+      const user = await User.findById(decoded.id);
+      if (!user) {
+        return res
+          .status(404)
+          .json({ error: "User profile record not found." });
+      }
+
+      if (user.isVerified) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "This account is already verified. Please proceed to log in.",
+          });
+      }
+
+      // Generate a brand-new 6-digit number string
+      const newRandomCode = Math.floor(
+        100000 + Math.random() * 900000,
+      ).toString();
+
+      // Overwrite the old code in MongoDB with the new one
+      user.verificationCode = newRandomCode;
+
+      // Fire the new code to their  inbox instantly
+      try {
+        await sendVerificationEmail(user.email, user.lastName, newRandomCode);
+      } catch (mailError) {
+        console.log("⚠️ Resend mailer transport rejected request.");
+        return res.status(500).json({
+          error: mailError.message,
+        });
+      }
+
+      await user.save();
+
+      return res.status(200).json({
+        message:
+          "A fresh 6-digit verification code has been dispatched to your inbox!",
+      });
+    } catch (jwtError) {
+      return res
+        .status(401)
+        .json({ error: "Your session has expired. Please sign up again." });
+    }
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ error: "Internal server error during code resend pipeline." });
+  }
 };
 
+// 🧠 FORGOT PASSWORD
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res.status(400).json({ error: "Email address is required." });
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      // Security Best Practice: Don't tell hackers if an email exists
+      return res
+        .status(200)
+        .json({
+          message:
+            "If the account exists, a 6-digit recovery code has been sent.",
+        });
+    }
+
+    const randomResetCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
+    user.resetCode = randomResetCode;
+    user.resetCodeExpires = Date.now() + 15 * 60 * 1000; // 15 mins expiry
+
+    try {
+      await sendResetPasswordEmail(user.email, user.lastName, randomResetCode);
+    } catch (e) {
+      return res.status(500).json({
+        error: e.message,
+      });
+    }
+
+    await user.save();
+
+    // Issue a short-lived recovery session token so they don't re-type email on next screen
+    const recoveryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
+
+    return res.status(200).json({
+      message: "Recovery code sent successfully!",
+      recoveryToken,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Internal server error." });
+  }
+};
 
 // 🔄 RESEND PASSWORD RESET CODE
 export const resendResetCode = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader)
+      return res.status(401).json({ error: "Recovery session missing." });
+
+    const recoveryToken = authHeader.split(" ")[1];
+    const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const newResetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.resetCode = newResetCode;
+    user.resetCodeExpires = Date.now() + 15 * 60 * 1000;
+    await user.save();
+
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) return res.status(401).json({ error: "Recovery session missing." });
-
-        const recoveryToken = authHeader.split(' ')[1];
-        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id);
-
-        if (!user) return res.status(404).json({ error: "User not found." });
-
-        const newResetCode = Math.floor(100000 + Math.random() * 900000).toString();
-        user.resetCode = newResetCode;
-        user.resetCodeExpires = Date.now() + 15 * 60 * 1000;
-        await user.save();
-
-        try { await sendResetPasswordEmail(user.email, user.lastName, newResetCode);
-
-         } catch (e) {
-            return res.status(500).json({
-                error: e.message
-            })
-         }
-        return res.status(200).json({ message: "New password recovery code dispatched!" });
-    } catch (error) {
-        return res.status(401).json({ error: "Recovery token expired." });
+      await sendResetPasswordEmail(user.email, user.lastName, newResetCode);
+    } catch (e) {
+      return res.status(500).json({
+        error: e.message,
+      });
     }
+    return res
+      .status(200)
+      .json({ message: "New password recovery code dispatched!" });
+  } catch (error) {
+    return res.status(401).json({ error: "Recovery token expired." });
+  }
 };
-
 
 // 🔢 POST /api/auth/verify-reset-code
 // Checks ONLY the 6-digit recovery code
 export const verifyResetCode = async (req, res) => {
-    try {
-        const { code } = req.body;
-        const authHeader = req.headers.authorization;
+  try {
+    const { code } = req.body;
+    const authHeader = req.headers.authorization;
 
-        if (!code) {
-            return res.status(400).json({ error: "Please enter the 6-digit recovery code." });
-        }
-        if (!authHeader) {
-            return res.status(401).json({ error: "Recovery session missing. Please restart the forgot-password flow." });
-        }
-
-        const recoveryToken = authHeader.split(' ')[1];
-        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id);
-
-        if (!user || user.resetCode !== code.trim() || user.resetCodeExpires < Date.now()) {
-            return res.status(400).json({ error: "Invalid or expired 6-digit recovery code." });
-        }
-
-        // Code is correct! Move them to the next page
-        return res.status(200).json({
-            message: "Code verified successfully! Redirecting to New Password screen..."
-        });
-
-    } catch (error) {
-        return res.status(401).json({ error: "Recovery session expired. Please try again." });
+    if (!code) {
+      return res
+        .status(400)
+        .json({ error: "Please enter the 6-digit recovery code." });
     }
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({
+          error:
+            "Recovery session missing. Please restart the forgot-password flow.",
+        });
+    }
+
+    const recoveryToken = authHeader.split(" ")[1];
+    const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    if (
+      !user ||
+      user.resetCode !== code.trim() ||
+      user.resetCodeExpires < Date.now()
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Invalid or expired 6-digit recovery code." });
+    }
+
+    // Code is correct! Move them to the next page
+    return res.status(200).json({
+      message:
+        "Code verified successfully! Redirecting to New Password screen...",
+    });
+  } catch (error) {
+    return res
+      .status(401)
+      .json({ error: "Recovery session expired. Please try again." });
+  }
 };
 
 // 🛠️ POST /api/auth/confirm-reset-password
 // Processes the new password inputs once the code is already passed
 export const confirmResetPassword = async (req, res) => {
-    try {
-        const { newPassword, confirmNewPassword } = req.body; // Pass code here to finalize
-        const authHeader = req.headers.authorization;
+  try {
+    const { newPassword, confirmNewPassword } = req.body; // Pass code here to finalize
+    const authHeader = req.headers.authorization;
 
-        if (!newPassword || !confirmNewPassword) {
-            return res.status(400).json({ error: "New password, confirmation, and the verified code are required fields." });
-        }
-        if (newPassword !== confirmNewPassword) {
-            return res.status(400).json({ error: "Passwords do not match." });
-        }
-        if (!authHeader) {
-            return res.status(401).json({ error: "Recovery session token context missing." });
-        }
-
-        const recoveryToken = authHeader.split(' ')[1];
-        const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
-        const user = await User.findOne({ _id: decoded.id });
-
-        if (!user) {
-            return res.status(400).json({ error: "Action unauthorized. Session parameters are out of sync." });
-        }
-
-        // Hash and save the brand new password credential safely
-        user.password = await bcrypt.hash(newPassword, 10);
-        user.resetCode = null; // Consume code permanently
-        user.resetCodeExpires = null;
-        await user.save();
-
-        return res.status(200).json({
-            message: "Password updated successfully! Redirecting user to Login screen."
+    if (!newPassword || !confirmNewPassword) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "New password, confirmation, and the verified code are required fields.",
         });
-
-    } catch (error) {
-        return res.status(401).json({ error: "Recovery session token has expired." });
     }
-};
+    if (newPassword !== confirmNewPassword) {
+      return res.status(400).json({ error: "Passwords do not match." });
+    }
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({ error: "Recovery session token context missing." });
+    }
 
+    const recoveryToken = authHeader.split(" ")[1];
+    const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
+    const user = await User.findOne({ _id: decoded.id });
+
+    if (!user) {
+      return res
+        .status(400)
+        .json({
+          error: "Action unauthorized. Session parameters are out of sync.",
+        });
+    }
+
+    // Hash and save the brand new password credential safely
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetCode = null; // Consume code permanently
+    user.resetCodeExpires = null;
+    await user.save();
+
+    return res.status(200).json({
+      message:
+        "Password updated successfully! Redirecting user to Login screen.",
+    });
+  } catch (error) {
+    return res
+      .status(401)
+      .json({ error: "Recovery session token has expired." });
+  }
+};
 
 // 🚪 9. LOGOUT (Figma Secure Session Cleanup)
 export const logoutUser = async (req, res) => {
-    // In token architecture, the server doesn't statefully store sessions.
-    // Logout means telling the client-side device to instantly shred the token from its memory.
-    return res.status(200).json({
-        message: "Logout successful! Session token destroyed. Redirecting to Entry Screen."
-    });
+  // In token architecture, the server doesn't statefully store sessions.
+  // Logout means telling the client-side device to instantly shred the token from its memory.
+  return res.status(200).json({
+    message:
+      "Logout successful! Session token destroyed. Redirecting to Entry Screen.",
+  });
 };
-
 
 // 🔄 PUT /api/auth/update-profile
 // Figma Aligned: Securely edits ONLY Name, Email, and Password directly from the settings screen
 export const updateUserProfile = async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
+  try {
+    const { name, email, password } = req.body;
 
-        // 1. Locate the active user profile using the hidden authenticated token ID
-        const user = await User.findById(req.user.id);
-        if (!user) {
-            return res.status(404).json({ error: "Authenticated user record not found." });
-        }
-
-        // 2. Handle Name Update
-        if (name) {
-            user.name = name.trim();
-        }
-
-        // 3. Handle Email Update
-        if (email && email.toLowerCase() !== user.email) {
-            const emailInUse = await User.findOne({ email: email.toLowerCase() });
-            if (emailInUse) {
-                return res.status(400).json({ error: "This email address is already in use by another profile." });
-            }
-            user.email = email.toLowerCase().trim();
-        }
-
-        // 4. Handle Password Update (Directly hashes if the field is populated)
-        if (password) {
-            const salt = await bcrypt.genSalt(10);
-            user.password = await bcrypt.hash(password, salt);
-        }
-
-        // 5. Commit the simplified updates to MongoDB
-        await user.save();
-
-        return res.status(200).json({
-            message: "Profile settings updated successfully!",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role
-            }
-        });
-
-    } catch (error) {
-        console.error("❌ Update Profile Error:", error.message);
-        return res.status(500).json({ error: "Internal server error during profile update loop." });
+    // 1. Locate the active user profile using the hidden authenticated token ID
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ error: "Authenticated user record not found." });
     }
+
+    // 2. Handle Name Update
+    if (name) {
+      user.name = name.trim();
+    }
+
+    // 3. Handle Email Update
+    if (email && email.toLowerCase() !== user.email) {
+      const emailInUse = await User.findOne({ email: email.toLowerCase() });
+      if (emailInUse) {
+        return res
+          .status(400)
+          .json({
+            error: "This email address is already in use by another profile.",
+          });
+      }
+      user.email = email.toLowerCase().trim();
+    }
+
+    // 4. Handle Password Update (Directly hashes if the field is populated)
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+    }
+
+    // 5. Commit the simplified updates to MongoDB
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile settings updated successfully!",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Update Profile Error:", error.message);
+    return res
+      .status(500)
+      .json({ error: "Internal server error during profile update loop." });
+  }
 };
