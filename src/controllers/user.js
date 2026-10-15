@@ -6,9 +6,9 @@ import { sendVerificationEmail, sendResetPasswordEmail } from '../config/mail.js
 // 📝 POST: Handles the user Registeration
 export const registerUser = async (req, res) => {
     try {
-        const { name, email, password, confirmPassword, role } = req.body;
+        const { firstName, lastName, email, password, confirmPassword, role } = req.body;
 
-        if (!name || !email || !password || !confirmPassword || !role) {
+        if (!firstName || !lastName || !email || !password || !confirmPassword || !role) {
             return res.status(400).json({ error: "All profile registration fields are required." });
         }
 
@@ -32,7 +32,8 @@ export const registerUser = async (req, res) => {
 
         // Account is staged as unverified (isVerified: false)
         const newUser = new User({ 
-            name, 
+            firstName,
+            lastName,
             email, 
             password: hashedPassword, 
             role,
@@ -44,7 +45,7 @@ export const registerUser = async (req, res) => {
 
         // Dispatch background verification email
         try {
-            await sendVerificationEmail(newUser.email, newUser.name, randomCode);
+            await sendVerificationEmail(newUser.email, newUser.lastName, randomCode);
         } catch (mailError) {
             console.log("⚠️ Background mailer transport rejected request, but profile saved safely.");
         }
@@ -62,7 +63,7 @@ export const registerUser = async (req, res) => {
         });
 
     } catch (error) {
-        return res.status(500).json({ error: "Internal registration pipeline error." });
+        return res.status(500).json({ error: error.message });
     }
 };
 
@@ -191,7 +192,7 @@ export const resendVerificationCode = async (req, res) => {
 
             // Fire the new code to their  inbox instantly
             try {
-                await sendVerificationEmail(user.email, user.name, newRandomCode);
+                await sendVerificationEmail(user.email, user.lastName, newRandomCode);
             } catch (mailError) {
                 console.log("⚠️ Resend mailer transport rejected request, but database code updated.");
             }
@@ -227,7 +228,7 @@ export const forgotPassword = async (req, res) => {
         user.resetCodeExpires = Date.now() + 15 * 60 * 1000; // 15 mins expiry
         await user.save();
 
-        try { await sendResetPasswordEmail(user.email, user.name, randomResetCode); } catch (e) {}
+        try { await sendResetPasswordEmail(user.email, user.lastName, randomResetCode); } catch (e) {}
 
         // Issue a short-lived recovery session token so they don't re-type email on next screen
         const recoveryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
@@ -259,7 +260,7 @@ export const resendResetCode = async (req, res) => {
         user.resetCodeExpires = Date.now() + 15 * 60 * 1000;
         await user.save();
 
-        try { await sendResetPasswordEmail(user.email, user.name, newResetCode); } catch (e) {}
+        try { await sendResetPasswordEmail(user.email, user.lastName, newResetCode); } catch (e) {}
         return res.status(200).json({ message: "New password recovery code dispatched!" });
     } catch (error) {
         return res.status(401).json({ error: "Recovery token expired." });
