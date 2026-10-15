@@ -2,7 +2,7 @@ import { BrevoClient } from "@getbrevo/brevo";
 
 // Brevo configuration
 const apiKey = process.env.BREVO_API_KEY;
-const fromEmail = process.env.BREVO_FROM_EMAIL;
+const fromEmail = process.env.BREVO_MAIL_FROM;
 
 if (!apiKey) {
   throw new Error("BREVO_API_KEY is missing from your environment variables");
