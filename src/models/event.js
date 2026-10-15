@@ -8,7 +8,8 @@ const eventSchema = new mongoose.Schema({
     venue: { type: String, required: [true, "Event venue is required"], trim: true },
     image: {type: String, required: [true, "Event image is required"]},
     status: { type: String, enum: ["upcoming", "ongoing", "completed"], default: 'upcoming' },
-    organizer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: [true, "Organizer ID is required"] }
+    organizer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: [true, "Organizer ID is required"] },
+    staff: {type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: []},
 }, { timestamps: true });
 
 eventSchema.index(
