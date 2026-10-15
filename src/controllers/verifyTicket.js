@@ -109,9 +109,9 @@ export const verifyTicketCode = async (req, res) => {
       `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.venue)}"`;
 
     // 10. Email the QR code using the attendee's full name
-    await sendQrEmail({
+    const emailResult = await sendQrEmail({
       attendeeEmail: attendee.email,
-      attendeeName: `${attendee.firstName} ${attendee.lastName}`,
+      attendeeName: `${attendee.firstName} ${attendee.lastName}`.trim(),
       eventName: event.name,
       eventDate: event.date,
       eventVenue: event.venue,
@@ -120,24 +120,40 @@ export const verifyTicketCode = async (req, res) => {
       qrCode,
     });
 
-    // 11. Return a successful response
+    console.log("QR ticket email accepted by Resend:", emailResult?.id);
+
+    // 12. Return successful response
     return res.status(200).json({
       success: true,
-      message: "Ticket verified and QR code emailed successfully",
+      message: "Ticket verified and QR code emailed successfully.",
+
       data: {
         ticketId: ticket._id,
+
         attendee: {
           id: attendee._id,
           firstName: attendee.firstName,
           lastName: attendee.lastName,
           email: attendee.email,
         },
+
         event: {
           id: event._id,
           name: event.name,
           date: event.date,
           venue: event.venue,
-          mapUrl: mapUrl,
+          mapUrl,
+        },
+
+        ticket: {
+          code: ticket.code_string,
+          ticketType: ticket.ticket_type,
+          status: ticket.status,
+        },
+
+        email: {
+          accepted: true,
+          id: emailResult?.id || null,
         },
       },
     });
@@ -146,7 +162,7 @@ export const verifyTicketCode = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Unable to verify ticket and send QR code",
+      message: "Unable to verify ticket and send QR code.",
     });
   }
 };

@@ -32,7 +32,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 2. Validate the event ID
+    // 2. Validate event ID
     if (!mongoose.isValidObjectId(eventId)) {
       return res.status(400).json({
         success: false,
@@ -40,7 +40,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 3. Normalize and validate the ticket category
+    // 3. Normalize and validate ticket category
     const normalizedTicketType = ticket_type.trim().toUpperCase();
 
     const allowedTicketTypes = ["REGULAR", "VIP", "VVIP"];
@@ -52,7 +52,6 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // Match the capitalization used in your Ticket model
     const selectedTicketType =
       normalizedTicketType === "REGULAR" ? "Regular" : normalizedTicketType;
 
@@ -66,6 +65,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
+    // Your Event model uses "active" and "inactive" statuses.
     if (event.status !== "upcoming") {
       return res.status(400).json({
         success: false,
@@ -73,9 +73,13 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 5. Find or create the attendee
+    // 5. Normalize attendee details
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedFirstName = firstName.trim();
+    const normalizedLastName = lastName.trim();
+    const normalizedPhone = phone.trim();
 
+    // 6. Find or create the attendee
     let attendee = await Attendee.findOne({
       email: normalizedEmail,
     });
@@ -83,13 +87,13 @@ export const registerAttendee = async (req, res) => {
     if (!attendee) {
       try {
         attendee = await Attendee.create({
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
           email: normalizedEmail,
-          phone: phone.trim(),
+          phone: normalizedPhone,
         });
       } catch (error) {
-        // Handle another request creating the same attendee concurrently
+        // Handle concurrent creation of an attendee with the same email.
         if (error.code === 11000) {
           attendee = await Attendee.findOne({
             email: normalizedEmail,
@@ -104,7 +108,7 @@ export const registerAttendee = async (req, res) => {
       }
     }
 
-    // 6. Check whether this attendee already has a ticket for this event
+    // 7. Prevent duplicate registration for the same event
     const existingTicket = await Ticket.findOne({
       event_id: eventId,
       attendee_id: attendee._id,
@@ -117,7 +121,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 7. Find and atomically assign a ticket from the selected category
+    // 8. Atomically assign an available ticket from the selected category
     const ticket = await Ticket.findOneAndUpdate(
       {
         event_id: eventId,
@@ -137,7 +141,7 @@ export const registerAttendee = async (req, res) => {
       },
     );
 
-    // 8. Handle unavailable tickets
+    // 9. Handle unavailable tickets
     if (!ticket) {
       return res.status(409).json({
         success: false,
@@ -145,7 +149,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 9. Email the assigned ticket code
+    // 10. Send the ticket code through Brevo
     try {
       await sendTicketCodeEmail({
         attendeeName: `${attendee.firstName} ${attendee.lastName}`,
@@ -159,7 +163,7 @@ export const registerAttendee = async (req, res) => {
     } catch (emailError) {
       console.error("Ticket email failed:", emailError);
 
-      // Release the ticket if email delivery fails
+      // Release the ticket if Brevo rejects the email request.
       try {
         await Ticket.updateOne(
           {
@@ -181,14 +185,15 @@ export const registerAttendee = async (req, res) => {
       return res.status(502).json({
         success: false,
         message:
-          "Ticket email delivery failed. Please try again or contact support.",
+          "Ticket email could not be sent. Please try again or contact support.",
       });
     }
 
-    // 10. Return successful registration details
+    // 11. Return successful registration details
     return res.status(201).json({
       success: true,
       message: "Registration successful. Ticket code sent to your email.",
+
       data: {
         attendee: {
           id: attendee._id,
