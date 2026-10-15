@@ -49,7 +49,7 @@ export const verifyTicketCode = async (req, res) => {
         path: "attendee_id",
         model: Attendee,
       })
-      .populate("ticket_type_id");
+      .populate("ticket_type");
 
     if (!ticket) {
       return res.status(404).json({
@@ -116,7 +116,7 @@ export const verifyTicketCode = async (req, res) => {
       eventDate: event.date,
       eventVenue: event.venue,
       ticketCode: ticket.code_string,
-      ticketType: ticket.ticket_type?.name,
+      ticketType: ticket.ticket_type,
       qrCode,
     });
 

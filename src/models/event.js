@@ -1,8 +1,17 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const eventSchema = new mongoose.Schema({
-    name: { type: String, required: [true, "Event name is required"], trim: true, unique: true },
-    description: {type: String, required: [true, "Event description is required"]},
+const eventSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, "Event name is required"],
+      trim: true,
+      unique: true,
+    },
+    description: {
+      type: String,
+      required: [true, "Event description is required"],
+    },
     date: { type: Date, required: [true, "Event date is required"] },
     startAt: {type: String, required: [true, "Event start time is required"]},
     venue: { type: String, required: [true, "Event venue is required"], trim: true },
@@ -13,14 +22,14 @@ const eventSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 eventSchema.index(
-    { organizer_id: 1, name: 1 },
-    {
-        unique: true,
-        collation: {
-            locale: 'en',
-            strength: 2
-        }
-    }
+  { organizer_id: 1, name: 1 },
+  {
+    unique: true,
+    collation: {
+      locale: "en",
+      strength: 2,
+    },
+  },
 );
 
-export default mongoose.model('Event', eventSchema);
+export default mongoose.model("Event", eventSchema);

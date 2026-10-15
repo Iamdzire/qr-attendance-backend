@@ -348,3 +348,55 @@ export const logoutUser = async (req, res) => {
         message: "Logout successful! Session token destroyed. Redirecting to Entry Screen."
     });
 };
+
+
+// 🔄 PUT /api/auth/update-profile
+// Figma Aligned: Securely edits ONLY Name, Email, and Password directly from the settings screen
+export const updateUserProfile = async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+        
+        // 1. Locate the active user profile using the hidden authenticated token ID
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: "Authenticated user record not found." });
+        }
+
+        // 2. Handle Name Update
+        if (name) {
+            user.name = name.trim();
+        }
+
+        // 3. Handle Email Update
+        if (email && email.toLowerCase() !== user.email) {
+            const emailInUse = await User.findOne({ email: email.toLowerCase() });
+            if (emailInUse) {
+                return res.status(400).json({ error: "This email address is already in use by another profile." });
+            }
+            user.email = email.toLowerCase().trim();
+        }
+
+        // 4. Handle Password Update (Directly hashes if the field is populated)
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(password, salt);
+        }
+
+        // 5. Commit the simplified updates to MongoDB
+        await user.save();
+
+        return res.status(200).json({
+            message: "Profile settings updated successfully!",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+
+    } catch (error) {
+        console.error("❌ Update Profile Error:", error.message);
+        return res.status(500).json({ error: "Internal server error during profile update loop." });
+    }
+};
