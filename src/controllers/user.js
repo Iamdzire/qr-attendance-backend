@@ -30,36 +30,42 @@ export const registerUser = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+
+
         // Account is staged as unverified (isVerified: false)
-        const newUser = new User({ 
+        const newUser = new User({
             firstName,
             lastName,
-            email, 
-            password: hashedPassword, 
+            email,
+            password: hashedPassword,
             role,
             verificationCode: randomCode,
-            isVerified: false 
+            isVerified: false
         });
-        
-        await newUser.save();
+
 
         // Dispatch background verification email
         try {
             await sendVerificationEmail(newUser.email, newUser.lastName, randomCode);
         } catch (mailError) {
-            console.log("⚠️ Background mailer transport rejected request, but profile saved safely.");
+            console.log("⚠️ Background mailer transport rejected request.");
+            return res.status(500).json({
+                error: mailError.message
+            });
         }
+
+        await newUser.save();
 
         // 🔑 Mint short-lived token so backend recognizes who is typing code 
         const tempToken = jwt.sign(
             { id: newUser._id },
             process.env.JWT_SECRET,
-            { expiresIn: '15m' } 
+            { expiresIn: '15m' }
         );
 
         return res.status(201).json({
             message: "Account staged! Redirecting to 6-digit email verification screen...",
-            tempToken 
+            tempToken
         });
 
     } catch (error) {
@@ -86,7 +92,7 @@ export const verifyAccountCode = async (req, res) => {
         try {
             // Unpack temporary context token to reveal user profile ID
             const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-            
+
             const user = await User.findById(decoded.id);
             if (!user) {
                 return res.status(404).json({ error: "User profile record not found." });
@@ -99,7 +105,7 @@ export const verifyAccountCode = async (req, res) => {
 
             // SUCCESS! Turn account status to active and erase temporary code
             user.isVerified = true;
-            user.verificationCode = null; 
+            user.verificationCode = null;
             await user.save();
 
             return res.status(200).json({
@@ -173,7 +179,7 @@ export const resendVerificationCode = async (req, res) => {
         try {
             // Unpack the temporary token to find out who clicked the button
             const decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
-            
+
             const user = await User.findById(decoded.id);
             if (!user) {
                 return res.status(404).json({ error: "User profile record not found." });
@@ -188,14 +194,18 @@ export const resendVerificationCode = async (req, res) => {
 
             // Overwrite the old code in MongoDB with the new one
             user.verificationCode = newRandomCode;
-            await user.save();
 
             // Fire the new code to their  inbox instantly
             try {
                 await sendVerificationEmail(user.email, user.lastName, newRandomCode);
             } catch (mailError) {
-                console.log("⚠️ Resend mailer transport rejected request, but database code updated.");
+                console.log("⚠️ Resend mailer transport rejected request.");
+                return res.status(500).json({
+                    error: mailError.message
+                })
             }
+
+            await user.save();
 
             return res.status(200).json({
                 message: "A fresh 6-digit verification code has been dispatched to your inbox!"
@@ -226,16 +236,24 @@ export const forgotPassword = async (req, res) => {
         const randomResetCode = Math.floor(100000 + Math.random() * 900000).toString();
         user.resetCode = randomResetCode;
         user.resetCodeExpires = Date.now() + 15 * 60 * 1000; // 15 mins expiry
-        await user.save();
 
-        try { await sendResetPasswordEmail(user.email, user.lastName, randomResetCode); } catch (e) {}
+        try {
+            await sendResetPasswordEmail(user.email, user.lastName, randomResetCode);
+
+        } catch (e) {
+            return res.status(500).json({
+                error: e.message
+            })
+        }
+
+        await user.save();
 
         // Issue a short-lived recovery session token so they don't re-type email on next screen
         const recoveryToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
 
-        return res.status(200).json({ 
-            message: "Recovery code sent successfully!", 
-            recoveryToken 
+        return res.status(200).json({
+            message: "Recovery code sent successfully!",
+            recoveryToken
         });
     } catch (error) {
         return res.status(500).json({ error: "Internal server error." });
@@ -260,7 +278,13 @@ export const resendResetCode = async (req, res) => {
         user.resetCodeExpires = Date.now() + 15 * 60 * 1000;
         await user.save();
 
-        try { await sendResetPasswordEmail(user.email, user.lastName, newResetCode); } catch (e) {}
+        try { await sendResetPasswordEmail(user.email, user.lastName, newResetCode);
+
+         } catch (e) {
+            return res.status(500).json({
+                error: e.message
+            })
+         }
         return res.status(200).json({ message: "New password recovery code dispatched!" });
     } catch (error) {
         return res.status(401).json({ error: "Recovery token expired." });
@@ -304,7 +328,7 @@ export const verifyResetCode = async (req, res) => {
 // Processes the new password inputs once the code is already passed
 export const confirmResetPassword = async (req, res) => {
     try {
-        const { newPassword, confirmNewPassword} = req.body; // Pass code here to finalize
+        const { newPassword, confirmNewPassword } = req.body; // Pass code here to finalize
         const authHeader = req.headers.authorization;
 
         if (!newPassword || !confirmNewPassword) {
@@ -319,7 +343,7 @@ export const confirmResetPassword = async (req, res) => {
 
         const recoveryToken = authHeader.split(' ')[1];
         const decoded = jwt.verify(recoveryToken, process.env.JWT_SECRET);
-        const user = await User.findOne({ _id: decoded.id});
+        const user = await User.findOne({ _id: decoded.id });
 
         if (!user) {
             return res.status(400).json({ error: "Action unauthorized. Session parameters are out of sync." });
@@ -331,8 +355,8 @@ export const confirmResetPassword = async (req, res) => {
         user.resetCodeExpires = null;
         await user.save();
 
-        return res.status(200).json({ 
-            message: "Password updated successfully! Redirecting user to Login screen." 
+        return res.status(200).json({
+            message: "Password updated successfully! Redirecting user to Login screen."
         });
 
     } catch (error) {
@@ -356,7 +380,7 @@ export const logoutUser = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
     try {
         const { name, email, password } = req.body;
-        
+
         // 1. Locate the active user profile using the hidden authenticated token ID
         const user = await User.findById(req.user.id);
         if (!user) {
