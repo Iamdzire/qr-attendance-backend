@@ -3,90 +3,173 @@ import mongoose from "mongoose";
 import TicketCode from "../models/ticket.js";
 import csvParser from "csv-parser";
 import { Readable } from "stream";
-import uploadToCloudinary from "../utils/uploadToCloudinary.js";
+import uploadToCloudinary from '../utils/uploadToCloudinary.js';
+import User from '../models/user.js';
 class EventController {
   async createEvent(req, res) {
     const session = await mongoose.startSession();
+
     try {
-      session.startTransaction();
+        session.startTransaction();
 
-      const { name, description, date, startAt, venue, status, organizer_id } =
-        req.body;
-
-      if (
-        !name ||
-        !description ||
-        !date ||
-        !startAt ||
-        !venue ||
-        !organizer_id
-      ) {
-        await session.abortTransaction();
-
-        return res.status(400).json({
-          success: false,
-          message: "All fields are required",
-          data: null,
-        });
-      }
-
-      if (!req.file) {
-        await session.abortTransaction();
-
-        return res.status(400).json({
-          success: false,
-          message: "Image is required, please upload an image",
-        });
-      }
-
-      const uploadResult = await uploadToCloudinary(req.file.buffer);
-
-      const imageUrl = uploadResult.secure_url;
-
-      const event = await Event.create(
-        [
-          {
-            name: name.trim(),
-            description: description.trim(),
+        const {
+            name,
+            description,
             date,
             startAt,
-            venue: venue.trim(),
-            image: imageUrl,
+            venue,
             status,
             organizer_id,
-          },
-        ],
-        { session },
-      );
+            staff = []
+        } = req.body;
 
-      await session.commitTransaction();
+        if (
+            !name ||
+            !description ||
+            !date ||
+            !startAt ||
+            !venue ||
+            !organizer_id
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "All fields are required",
+                data: null
+            });
+        }
 
-      return res.status(201).json({
-        success: true,
-        message: "Event created successfully",
-        data: event[0],
-      });
-    } catch (error) {
-      await session.abortTransaction();
+        if (!mongoose.Types.ObjectId.isValid(organizer_id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid organizer ID",
+                data: null
+            });
+        }
 
-      if (error.code === 11000) {
-        return res.status(409).json({
-          success: false,
-          message: "An event with this name already exists",
+        const organizer = await User.findById(organizer_id).session(session);
+
+        if (!organizer) {
+            return res.status(404).json({
+                success: false,
+                message: "Organizer not found",
+                data: null
+            });
+        }
+
+        if (organizer.role !== "organizer") {
+            return res.status(400).json({
+                success: false,
+                message: "The selected user is not an organizer",
+                data: null
+            });
+        }
+
+        if (!Array.isArray(staff)) {
+            return res.status(400).json({
+                success: false,
+                message: "Staff must be an array of user IDs",
+                data: null
+            });
+        }
+
+        if (
+            staff.some(
+                id =>
+                    typeof id !== "string" ||
+                    !mongoose.Types.ObjectId.isValid(id)
+            )
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "One or more staff IDs are invalid",
+                data: null
+            });
+        }
+
+        const uniqueStaffIds = [
+            ...new Set(staff.map(id => id.toString()))
+        ];
+
+        const staffUsers = await User.find({
+            _id: { $in: uniqueStaffIds },
+            role: "staff"
+        })
+            .select("_id")
+            .session(session);
+
+        if (staffUsers.length !== uniqueStaffIds.length) {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "One or more selected users do not exist or are not staff members",
+                data: null
+            });
+        }
+
+        const validatedStaff = staffUsers.map(user => user._id);
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Image is required, please upload an image",
+                data: null
+            });
+        }
+
+        const uploadResult = await uploadToCloudinary(req.file.buffer);
+
+        const imageUrl = uploadResult.secure_url;
+
+        const event = await Event.create(
+            [
+                {
+                    name: name.trim(),
+                    description: description.trim(),
+                    date,
+                    startAt,
+                    venue: venue.trim(),
+                    image: imageUrl,
+                    status,
+                    organizer_id: organizer._id,
+                    staff: validatedStaff
+                }
+            ],
+            { session }
+        );
+
+        await session.commitTransaction();
+
+        return res.status(201).json({
+            success: true,
+            message: "Event created successfully",
+            data: event[0]
         });
-      }
 
-      console.error("CREATE EVENT ERROR:", error);
+    } catch (error) {
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
 
-      return res.status(500).json({
-        success: false,
-        message: "Error creating event",
-        error: error.message,
-      });
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: "An event with this name already exists",
+                data: null
+            });
+        }
+
+        console.error("CREATE EVENT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Error creating event",
+            error: error.message
+        });
+
     } finally {
-      await session.endSession();
+        await session.endSession();
     }
-  }
+}
 
   async getAllEvents(req, res) {
     try {
