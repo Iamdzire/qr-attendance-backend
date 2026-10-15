@@ -49,7 +49,10 @@ export const sendVerificationEmail = async (
       `,
     });
 
-    console.log("Verification email accepted by Brevo:", response?.messageId || response);
+    console.log(
+      "Verification email accepted by Brevo:",
+      response?.messageId || response,
+    );
     return response;
   } catch (error) {
     console.error("Brevo verification email error:", error);
@@ -91,7 +94,10 @@ export const sendResetPasswordEmail = async (
       `,
     });
 
-    console.log("Password reset email accepted by Brevo:", response?.messageId || response);
+    console.log(
+      "Password reset email accepted by Brevo:",
+      response?.messageId || response,
+    );
     return response;
   } catch (error) {
     console.error("Brevo password reset email error:", error);
