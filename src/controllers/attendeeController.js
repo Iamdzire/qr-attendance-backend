@@ -46,12 +46,18 @@ export const getAttendeeTicket = async (req, res) => {
     const ticket = await Ticket.findOne({
       attendee_id: attendeeId,
       event_id: eventId,
-    }).select("-qr_token");
+    });
 
     if (!ticket) {
       return res.status(404).json({
         success: false,
         message: "No ticket found for this attendee and event",
+      });
+    }
+    if (!ticket.qr_token) {
+      return res.status(409).json({
+        success: false,
+        message: "The QR code is not ready yet",
       });
     }
 
@@ -80,6 +86,7 @@ export const getAttendeeTicket = async (req, res) => {
           code: ticket.code_string,
           status: ticket.status,
           ticket_type: ticket.ticket_type,
+          qrGenerated: Boolean(ticket.qr_token),
         },
       },
     });
