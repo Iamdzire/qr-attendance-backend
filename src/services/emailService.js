@@ -1,16 +1,62 @@
-import nodemailer from "nodemailer";
+import { BrevoClient } from "@getbrevo/brevo";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.MAIL_HOST,
-  port: Number(process.env.MAIL_PORT),
-  secure: Number(process.env.MAIL_PORT) === 465,
+// Brevo configuration
+const apiKey = process.env.BREVO_API_KEY;
+const fromEmail = process.env.BREVO_FROM_EMAIL;
 
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASSWORD,
-  },
+if (!apiKey) {
+  throw new Error("BREVO_API_KEY is missing from your environment variables");
+}
+
+if (!fromEmail) {
+  throw new Error(
+    "BREVO_FROM_EMAIL is missing from your environment variables",
+  );
+}
+
+const brevo = new BrevoClient({
+  apiKey: apiKey,
 });
 
+// Escape HTML values before inserting them into email templates.
+const escapeHtml = (value) => {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+
+    return entities[character];
+  });
+};
+
+// Format event dates consistently.
+const formatEventDate = (eventDate) => {
+  if (!eventDate) {
+    return "TBD";
+  }
+
+  const date = new Date(eventDate);
+
+  if (Number.isNaN(date.getTime())) {
+    return "TBD";
+  }
+
+  return date.toLocaleString();
+};
+
+// Shared sender configuration.
+const getSender = () => ({
+  name: "EVENTIFY",
+  email: fromEmail,
+});
+
+/**
+ * Send the attendee's ticket code after registration.
+ */
 export const sendTicketCodeEmail = async ({
   attendeeName,
   attendeeEmail,
@@ -20,66 +66,89 @@ export const sendTicketCodeEmail = async ({
   ticketCode,
   ticketType,
 }) => {
-  const mailOptions = {
-    from: `"EVENTIFY" <${process.env.MAIL_USER}>`,
-    to: attendeeEmail,
+  if (!attendeeEmail) {
+    throw new Error("Attendee email is required");
+  }
 
-    subject: `Your Ticket Code - ${eventName}`,
+  if (!ticketCode) {
+    throw new Error("Ticket code is required");
+  }
 
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>Registration Successful 🎟️</h2>
+  const safeName = escapeHtml(attendeeName || "Attendee");
+  const safeEventName = escapeHtml(eventName || "Event");
+  const safeEventDate = escapeHtml(formatEventDate(eventDate));
+  const safeVenue = escapeHtml(eventVenue || "TBD");
+  const safeTicketCode = escapeHtml(ticketCode);
+  const safeTicketType = escapeHtml(ticketType || "Regular");
 
-        <p>Hello ${attendeeName},</p>
+  try {
+    const response = await brevo.transactionalEmails.sendTransacEmail({
+      sender: getSender(),
+      to: [{ email: attendeeEmail, name: attendeeName || "Attendee" }],
+      subject: `Your Ticket Code - ${eventName || "Event"}`,
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #222; max-width: 600px; margin: auto;">
 
-        <p>
-          Your registration for <strong>${eventName}</strong>
-          was successful.
-        </p>
+          <h2>Registration Successful 🎟️</h2>
 
-        <h3>Event Details</h3>
+          <p>Hello ${safeName},</p>
 
-        <p>
-          <strong>Event:</strong> ${eventName}<br>
-          <strong>Date:</strong> ${new Date(eventDate).toLocaleString()}<br>
-          <strong>Venue:</strong> ${eventVenue}
-          <strong>Ticket_Type:</strong> ${ticketType}
-        </p>
+          <p>
+            Your registration for
+            <strong>${safeEventName}</strong>
+            was successful.
+          </p>
 
-        <h3>Your Ticket</h3>
+          <h3>Event Details</h3>
 
-        <p>
-          <strong>Ticket Code:</strong>
-        </p>
+          <p>
+            <strong>Event:</strong> ${safeEventName}<br>
+            <strong>Date:</strong> ${safeEventDate}<br>
+            <strong>Venue:</strong> ${safeVenue}<br>
+            <strong>Ticket Type:</strong> ${safeTicketType}
+          </p>
 
-        <div
-          style="
+          <h3>Your Ticket</h3>
+
+          <p>Your ticket code is:</p>
+
+          <div style="
             font-size: 28px;
             font-weight: bold;
             letter-spacing: 4px;
             background: #f4f4f4;
             padding: 15px;
             display: inline-block;
-          "
-        >
-          ${ticketCode}
+            border-radius: 5px;
+          ">
+            ${safeTicketCode}
+          </div>
+
+          <p>
+            Keep this code safe. You will need it to verify your ticket
+            and generate your event QR code.
+          </p>
+
+          <p>Thank you for registering with EVENTIFY.</p>
+
         </div>
+      `,
+    });
 
-        <p>
-          Keep this code safe. You will need it to verify your ticket
-          and generate your event QR code.
-        </p>
-
-        <p>
-          Thank you.
-        </p>
-      </div>
-    `,
-  };
-
-  return transporter.sendMail(mailOptions);
+    console.log(
+      "Ticket-code email accepted by Brevo:",
+      response?.messageId || response,
+    );
+    return response;
+  } catch (error) {
+    console.error("Brevo ticket-code email error:", error);
+    throw new Error("Failed to send ticket-code email");
+  }
 };
 
+/**
+ * Send the attendee's QR code after ticket verification.
+ */
 export const sendQrEmail = async ({
   attendeeEmail,
   attendeeName,
@@ -94,68 +163,108 @@ export const sendQrEmail = async ({
     throw new Error("Attendee email is required");
   }
 
-  if (!qrCode) {
+  if (!qrCode || typeof qrCode !== "string") {
     throw new Error("QR code is required");
   }
 
-  const base64Image = qrCode.split("base64,")[1];
+  // Ensure full data URL format for inline HTML rendering
+  const formattedQrCode = qrCode.startsWith("data:image/")
+    ? qrCode
+    : `data:image/png;base64,${qrCode}`;
 
-  if (!base64Image) {
-    throw new Error("Invalid QR code data");
-  }
+  // Extract clean base64 string for the attachment object
+  const base64Match = qrCode.match(
+    /^data:image\/png;base64,([A-Za-z0-9+/=\r\n]+)$/,
+  );
+  const base64Image = base64Match ? base64Match[1].replace(/\s/g, "") : qrCode;
 
-  await transporter.sendMail({
-    from: `"EVENTIFY" <${process.env.MAIL_USER}>`,
-    to: attendeeEmail,
-    subject: `Your ${ticketType || "Event"} Ticket - ${eventName}`,
+  const safeName = escapeHtml(attendeeName || "Attendee");
+  const safeEventName = escapeHtml(eventName || "Event");
+  const safeEventDate = escapeHtml(formatEventDate(eventDate));
+  const safeVenue = escapeHtml(eventVenue || "TBD");
+  const safeTicketCode = escapeHtml(ticketCode || "N/A");
+  const safeTicketType = escapeHtml(ticketType || "Standard");
 
-    text: `
+  const textContent = `
 Hello ${attendeeName || "Attendee"},
 
-Your ticket for ${eventName} has been verified successfully.
+Your ticket for ${eventName || "the event"} has been verified successfully.
 
 Ticket Type: ${ticketType || "Standard"}
 Ticket Code: ${ticketCode || "N/A"}
-Date: ${eventDate ? new Date(eventDate).toLocaleString() : "TBD"}
+Date: ${formatEventDate(eventDate)}
 Venue: ${eventVenue || "TBD"}
 
-Please present the attached QR code at the event entrance.
+Please present your QR code at the event entrance.
 
-Thank you.
-    `,
+Thank you,
+EVENTIFY
+  `.trim();
 
-    html: `
-      <h2>Your Event Ticket</h2>
+  try {
+    const response = await brevo.transactionalEmails.sendTransacEmail({
+      sender: getSender(),
+      to: [{ email: attendeeEmail, name: attendeeName || "Attendee" }],
+      subject: `Your ${ticketType || "Event"} Ticket - ${eventName || "Event"}`,
+      textContent: textContent,
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #222; max-width: 600px; margin: auto;">
 
-      <p>Hello <strong>${attendeeName || "Attendee"}</strong>,</p>
+          <h2>Your Event Ticket 🎟️</h2>
 
-      <p>Your ticket for <strong>${eventName}</strong> has been verified successfully.</p>
+          <p>Hello <strong>${safeName}</strong>,</p>
 
-      <div style="background-color: #f4f4f4; padding: 15px; border-radius: 8px; margin: 15px 0;">
-        <p style="margin: 5px 0;"><strong>Ticket Type:</strong> <span style="color: #2563eb; font-weight: bold;">${ticketType || "Standard"}</span></p>
-        <p style="margin: 5px 0;"><strong>Ticket Code:</strong> ${ticketCode || "N/A"}</p>
-        <p style="margin: 5px 0;"><strong>Date:</strong> ${eventDate ? new Date(eventDate).toLocaleString() : "TBD"}</p>
-        <p style="margin: 5px 0;"><strong>Venue:</strong> ${eventVenue || "TBD"}</p>
-      </div>
+          <p>
+            Your ticket for <strong>${safeEventName}</strong>
+            has been verified successfully.
+          </p>
 
-      <p>Please present the QR code below at the event entrance:</p>
+          <div style="
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+          ">
+            <p style="margin: 5px 0;">
+              <strong>Ticket Type:</strong> ${safeTicketType}
+            </p>
 
-      <img
-        src="cid:event-ticket-qr"
-        alt="Event QR Code"
-        width="300"
-      />
+            <p style="margin: 5px 0;">
+              <strong>Ticket Code:</strong> ${safeTicketCode}
+            </p>
 
-      <p><small>Please keep this QR code safe and do not share it.</small></p>
-    `,
+            <p style="margin: 5px 0;">
+              <strong>Date:</strong> ${safeEventDate}
+            </p>
 
-    attachments: [
-      {
-        filename: "event-ticket-qr.png",
-        content: base64Image,
-        encoding: "base64",
-        cid: "event-ticket-qr",
-      },
-    ],
-  });
+            <p style="margin: 5px 0;">
+              <strong>Venue:</strong> ${safeVenue}
+            </p>
+          </div>
+
+         
+
+          <p>
+            <small>
+              Keep your QR code safe and do not share it with other people.
+            </small>
+          </p>
+
+          <p>Thank you,<br>EVENTIFY</p>
+
+        </div>
+      `,
+      attachment: [
+        {
+          name: "qrcode.png", // Valid file format name for Brevo
+          content: base64Image,
+        },
+      ],
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Brevo QR email error:", error);
+    throw new Error("Failed to send QR-code email");
+  }
 };
