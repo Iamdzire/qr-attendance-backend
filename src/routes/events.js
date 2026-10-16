@@ -11,14 +11,17 @@ import { getAssignedStaffEvents } from "../controllers/staffAttendanceController
 
 const router = express.Router();
 
+// EVENT ENDPOINTS
 router.post(
   "/",
   requireAuth,
   requireOrganizer,
-  upload.single("image"),
-  eventController.createEvent,
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "ticket", maxCount: 1 },
+  ]),
+  eventController.createEvent
 );
-
 router.get("/", eventController.getAllEvents);
 
 router.get(

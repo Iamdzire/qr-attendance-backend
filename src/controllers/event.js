@@ -7,170 +7,333 @@ import uploadToCloudinary from '../utils/uploadToCloudinary.js';
 import User from '../models/user.js';
 class EventController {
   async createEvent(req, res) {
-    const session = await mongoose.startSession();
+  const session = await mongoose.startSession();
 
-    try {
-        session.startTransaction();
+  let uploadedImagePublicId;
 
-        const {
-            name,
-            description,
-            date,
-            startAt,
-            venue,
-            status,
-            organizer_id,
-            staff = []
-        } = req.body;
+  try {
+    const {
+      name,
+      description,
+      date,
+      startAt,
+      venue,
+      status,
+      organizer_id,
+    } = req.body;
 
-        if (
-            !name ||
-            !description ||
-            !date ||
-            !startAt ||
-            !venue ||
-            !organizer_id
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "All fields are required",
-                data: null
-            });
-        }
+    let staff = req.body.staff ?? [];
 
-        if (!mongoose.Types.ObjectId.isValid(organizer_id)) {
-            return res.status(400).json({
-                success: false,
-                message: "Invalid organizer ID",
-                data: null
-            });
-        }
-
-        const organizer = await User.findById(organizer_id).session(session);
-
-        if (!organizer) {
-            return res.status(404).json({
-                success: false,
-                message: "Organizer not found",
-                data: null
-            });
-        }
-
-        if (organizer.role !== "organizer") {
-            return res.status(400).json({
-                success: false,
-                message: "The selected user is not an organizer",
-                data: null
-            });
-        }
-
-        if (!Array.isArray(staff)) {
-            return res.status(400).json({
-                success: false,
-                message: "Staff must be an array of user IDs",
-                data: null
-            });
-        }
-
-        if (
-            staff.some(
-                id =>
-                    typeof id !== "string" ||
-                    !mongoose.Types.ObjectId.isValid(id)
-            )
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "One or more staff IDs are invalid",
-                data: null
-            });
-        }
-
-        const uniqueStaffIds = [
-            ...new Set(staff.map(id => id.toString()))
-        ];
-
-        const staffUsers = await User.find({
-            _id: { $in: uniqueStaffIds },
-            role: "staff"
-        })
-            .select("_id")
-            .session(session);
-
-        if (staffUsers.length !== uniqueStaffIds.length) {
-            return res.status(400).json({
-                success: false,
-                message:
-                    "One or more selected users do not exist or are not staff members",
-                data: null
-            });
-        }
-
-        const validatedStaff = staffUsers.map(user => user._id);
-
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: "Image is required, please upload an image",
-                data: null
-            });
-        }
-
-        const uploadResult = await uploadToCloudinary(req.file.buffer);
-
-        const imageUrl = uploadResult.secure_url;
-
-        const event = await Event.create(
-            [
-                {
-                    name: name.trim(),
-                    description: description.trim(),
-                    date,
-                    startAt,
-                    venue: venue.trim(),
-                    image: imageUrl,
-                    status,
-                    organizer_id: organizer._id,
-                    staff: validatedStaff
-                }
-            ],
-            { session }
-        );
-
-        await session.commitTransaction();
-
-        return res.status(201).json({
-            success: true,
-            message: "Event created successfully",
-            data: event[0]
+    if (typeof staff === "string") {
+      try {
+        staff = JSON.parse(staff);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: "Staff must be a valid JSON array of user IDs",
         });
-
-    } catch (error) {
-        if (session.inTransaction()) {
-            await session.abortTransaction();
-        }
-
-        if (error.code === 11000) {
-            return res.status(409).json({
-                success: false,
-                message: "An event with this name already exists",
-                data: null
-            });
-        }
-
-        console.error("CREATE EVENT ERROR:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Error creating event",
-            error: error.message
-        });
-
-    } finally {
-        await session.endSession();
+      }
     }
-}
 
+    // Validate required fields.
+    if (
+      !name?.trim() ||
+      !description?.trim() ||
+      !date ||
+      !startAt ||
+      !venue?.trim() ||
+      !organizer_id
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required event fields must be provided",
+      });
+    }
+
+    // Validate organizer ID.
+    if (!mongoose.isValidObjectId(organizer_id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid organizer ID",
+      });
+    }
+
+    // Validate staff IDs.
+    if (!Array.isArray(staff)) {
+      return res.status(400).json({
+        success: false,
+        message: "Staff must be an array of user IDs",
+      });
+    }
+
+    if (
+      staff.some(
+        (id) =>
+          typeof id !== "string" ||
+          !mongoose.isValidObjectId(id)
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more staff IDs are invalid",
+      });
+    }
+
+    const uniqueStaffIds = [
+      ...new Set(staff.map((id) => id.toString())),
+    ];
+
+    // Validate uploaded files.
+    const imageFile = req.files?.image?.[0];
+    const ticketFile = req.files?.ticket?.[0];
+
+    if (!imageFile) {
+      return res.status(400).json({
+        success: false,
+        message: "Event image is required",
+      });
+    }
+
+    if (!ticketFile) {
+      return res.status(400).json({
+        success: false,
+        message: "Ticket CSV file is required",
+      });
+    }
+
+    if (!ticketFile.originalname.toLowerCase().endsWith(".csv")) {
+      return res.status(400).json({
+        success: false,
+        message: "Only CSV files are allowed for ticket uploads",
+      });
+    }
+
+    // Validate and parse the ticket CSV.
+    const rows = await new Promise((resolve, reject) => {
+      const results = [];
+
+      Readable.from(ticketFile.buffer)
+        .pipe(
+          csvParser({
+            separator: ticketFile.buffer.includes(0x09) ? "\t" : ",",
+            mapHeaders: ({ header }) =>
+              header
+                .replace(/^\uFEFF/, "")
+                .trim()
+                .toLowerCase(),
+          })
+        )
+        .on("data", (row) => results.push(row))
+        .on("end", () => resolve(results))
+        .on("error", reject);
+    });
+
+    if (rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "The ticket CSV file contains no records",
+      });
+    }
+
+    const allowedTicketTypes = new Map([
+      ["regular", "Regular"],
+      ["vip", "VIP"],
+      ["vvip", "VVIP"],
+      ["premium", "Premium"],
+    ]);
+    
+    const seenCodes = new Set();
+    const validTickets = [];
+    const invalidRows = [];
+
+    for (const [index, row] of rows.entries()) {
+      const rowNumber = index + 2;
+      const code = row.code?.trim();
+      const rawTicketType = row.ticket_type?.trim();
+
+      if (!code || !rawTicketType) {
+        invalidRows.push({
+          row: rowNumber,
+          reason: !code
+            ? "Missing ticket code"
+            : "Missing ticket type",
+        });
+
+        continue;
+      }
+
+      if (seenCodes.has(code)) {
+        invalidRows.push({
+          row: rowNumber,
+          code,
+          reason: "Duplicate ticket code in CSV",
+        });
+
+        continue;
+      }
+
+      seenCodes.add(code);
+
+      const ticketType = allowedTicketTypes.get(
+        rawTicketType.toLowerCase()
+      );
+
+      if (!ticketType) {
+        invalidRows.push({
+          row: rowNumber,
+          code,
+          reason: `Invalid ticket type: ${rawTicketType}`,
+        });
+
+        continue;
+      }
+
+      validTickets.push({
+        code_string: code,
+        ticket_type: ticketType,
+        source: "CSV",
+      });
+    }
+
+    if (invalidRows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Some ticket CSV rows contain invalid data",
+        invalidRows,
+      });
+    }
+
+    // Start the database transaction.
+    session.startTransaction();
+
+    // Validate organizer and staff.
+    const organizer = await User.findById(organizer_id)
+      .session(session);
+
+    if (!organizer || organizer.role !== "organizer") {
+      await session.abortTransaction();
+
+      return res.status(400).json({
+        success: false,
+        message: "A valid organizer is required",
+      });
+    }
+
+    const staffUsers = await User.find({
+      _id: { $in: uniqueStaffIds },
+      role: "staff",
+    })
+      .select("_id")
+      .session(session);
+
+    if (staffUsers.length !== uniqueStaffIds.length) {
+      await session.abortTransaction();
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "One or more selected users do not exist or are not staff members",
+      });
+    }
+
+    // Upload the event image.
+    const uploadResult = await uploadToCloudinary(
+      imageFile.buffer
+    );
+
+    const imageUrl = uploadResult.secure_url;
+    uploadedImagePublicId = uploadResult.public_id;
+
+    // Check whether ticket codes already exist.
+    const codes = validTickets.map(
+      (ticket) => ticket.code_string
+    );
+
+    const existingTickets = await TicketCode.find({
+      code_string: { $in: codes },
+    })
+      .select("code")
+      .session(session)
+      .lean();
+
+    if (existingTickets.length > 0) {
+      await session.abortTransaction();
+
+      return res.status(409).json({
+        success: false,
+        message: "Some ticket codes already exist",
+        existingCodes: existingTickets.map(
+          (ticket) => ticket.code_string
+        ),
+      });
+    }
+
+    // Create the event.
+    const [event] = await Event.create(
+      [
+        {
+          name: name.trim(),
+          description: description.trim(),
+          date,
+          startAt,
+          venue: venue.trim(),
+          image: imageUrl,
+          status: status || "upcoming",
+          organizer_id: organizer._id,
+          staff: staffUsers.map((user) => user._id),
+        },
+      ],
+      { session }
+    );
+
+    // Associate tickets with the new event.
+    const ticketsToInsert = validTickets.map((ticket) => ({
+      ...ticket,
+      event_id: event._id,
+    }));
+
+    const createdTickets = await TicketCode.insertMany(
+      ticketsToInsert,
+      {
+        session,
+        ordered: true,
+      }
+    );
+
+    // Commit the transaction.
+    await session.commitTransaction();
+
+    return res.status(201).json({
+      success: true,
+      message: "Event created successfully with ticket codes",
+      data: {
+        event,
+        ticketsUploaded: createdTickets.length,
+      },
+    });
+  } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    console.error("CREATE EVENT ERROR:", error);
+
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "An event or ticket code already exists",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Error creating event",
+      error: error.message,
+    });
+  } finally {
+    await session.endSession();
+  }
+}
   async getAllEvents(req, res) {
     try {
       const events = await Event.find().sort({ createdAt: -1 });
@@ -470,7 +633,7 @@ class EventController {
         uniqueCodes.add(code);
 
         validTickets.push({
-          code_string: code,
+          code_string: code_string,
           ticket_type: ticketType,
           event_id: event._id,
           source: "CSV",

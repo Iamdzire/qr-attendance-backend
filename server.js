@@ -13,7 +13,7 @@ const app = express();
 // 🧱 GLOBAL MIDDLEWARE LAYERS
 
 // 1. Cross-Origin Resource Sharing (Allows frontend to talk to your backend)
-app.use(cors());
+app.use(cors({}));
 
 // 2. JSON Parser (Parses standard JSON payloads from Postman/Frontend)
 app.use(express.json());

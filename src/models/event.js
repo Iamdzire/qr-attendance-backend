@@ -19,6 +19,11 @@ const eventSchema = new mongoose.Schema(
     status: { type: String, enum: ["upcoming", "ongoing", "completed"], default: 'upcoming' },
     organizer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: [true, "Organizer ID is required"] },
     staff: {type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: []},
+    tickets: [{
+      type: [mongoose.Schema.Types.ObjectId], 
+      ref: 'Ticket'
+    },
+    ]
 }, { timestamps: true });
 
 eventSchema.index(
