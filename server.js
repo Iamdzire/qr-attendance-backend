@@ -13,20 +13,7 @@ const app = express();
 // 🧱 GLOBAL MIDDLEWARE LAYERS
 
 // 1. Cross-Origin Resource Sharing (Allows frontend to talk to your backend)
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5500",
-      "http://127.0.0.1:5500",
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:5173",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({}));
 
 // 2. JSON Parser (Parses standard JSON payloads from Postman/Frontend)
 app.use(express.json());

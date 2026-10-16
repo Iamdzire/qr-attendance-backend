@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 import { BrevoClient } from "@getbrevo/brevo";
 
 // Initialize Brevo client
@@ -15,22 +14,6 @@ if (!fromEmail) {
 
 const brevo = new BrevoClient({
   apiKey: apiKey,
-=======
-import nodemailer from "nodemailer";
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  requireTLS: true,
-  connectionTimeout: 20000,
-  greetingTimeout: 15000,
-  socketTimeout: 30000,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
->>>>>>> Stashed changes
 });
 
 export const sendVerificationEmail = async (
