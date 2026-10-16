@@ -1,71 +1,87 @@
-import mongoose from 'mongoose';
-import Event from '../models/event.js';
-import Ticket from '../models/ticket.js';
-import Scan from '../models/scan.js';
+import mongoose from "mongoose";
+import Event from "../models/event.js";
+import Ticket from "../models/ticket.js";
+import Attendee from "../models/attendee.js";
+import Scan from "../models/scan.js";
 
-const TIMEZONE = 'Africa/Lagos'; // used to group check-ins by hour
-const RECENT_LIMIT = 10;         // how many recent scans to return
+const TIMEZONE = "Africa/Lagos";
+const RECENT_LIMIT = 10;
 
-const round1 = (n) => Math.round(n * 10) / 10;
+const round1 = (number) => Math.round(number * 10) / 10;
+
+const getAttendeeDetails = async (attendeeId) => {
+  if (!attendeeId) {
+    return null;
+  }
+
+  const attendee = await Attendee.findById(attendeeId)
+    .select("firstName lastName")
+    .lean();
+
+  if (!attendee) {
+    return null;
+  }
+
+  return {
+    id: attendee._id,
+    firstName: attendee.firstName,
+    lastName: attendee.lastName,
+  };
+};
 
 // GET /api/scans/events/:id/attendance
 export const getEventAttendance = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1. Make sure the id in the URL looks like a real MongoDB id
     if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid event id' });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event id",
+      });
     }
 
-    // 2. Find the event only if it belongs to the authenticated organizer
     const event = await Event.findOne({
       _id: id,
       organizer_id: req.user.id,
     })
-      .select('name date venue')
+      .select("name date venue")
       .lean();
 
     if (!event) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found',
+        message: "Event not found",
       });
     }
 
-    // Aggregations do NOT auto-convert text ids, so we convert by hand
     const eventId = new mongoose.Types.ObjectId(id);
 
-    // 3. Ticket counts: how many tickets exist, grouped by status
     const ticketPipeline = [
       { $match: { event_id: eventId } },
-      { $group: { _id: '$status', count: { $sum: 1 } } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
     ];
 
-    // 4. Scan reports: four mini-reports run on the same set of scans
     const scanPipeline = [
       { $match: { event_id: eventId } },
       {
         $facet: {
-          // Count of scans per result type
-          outcomes: [{ $group: { _id: '$scan_result', count: { $sum: 1 } } }],
-
-          // Valid check-ins per gate
+          outcomes: [
+            { $group: { _id: "$scan_result", count: { $sum: 1 } } },
+          ],
           perGate: [
-            { $match: { scan_result: 'valid' } },
-            { $group: { _id: '$gate_label', count: { $sum: 1 } } },
+            { $match: { scan_result: "valid" } },
+            { $group: { _id: "$gate_label", count: { $sum: 1 } } },
             { $sort: { count: -1 } },
           ],
-
-          // Valid check-ins per hour (shows peak times)
           perHour: [
-            { $match: { scan_result: 'valid' } },
+            { $match: { scan_result: "valid" } },
             {
               $group: {
                 _id: {
                   $dateToString: {
-                    format: '%Y-%m-%d %H:00',
-                    date: '$createdAt',
+                    format: "%Y-%m-%d %H:00",
+                    date: "$createdAt",
                     timezone: TIMEZONE,
                   },
                 },
@@ -74,26 +90,26 @@ export const getEventAttendance = async (req, res) => {
             },
             { $sort: { _id: 1 } },
           ],
-
-          // Latest scans for a live feed (with the ticket code looked up)
           recent: [
             { $sort: { createdAt: -1 } },
             { $limit: RECENT_LIMIT },
             {
               $lookup: {
                 from: Ticket.collection.name,
-                localField: 'ticket_id',
-                foreignField: '_id',
-                as: 'ticket',
+                localField: "ticket_id",
+                foreignField: "_id",
+                as: "ticket",
               },
             },
             {
               $project: {
                 _id: 0,
-                ticketCode: { $arrayElemAt: ['$ticket.code_string', 0] },
-                result: '$scan_result',
-                gate: '$gate_label',
-                time: '$createdAt',
+                ticketCode: {
+                  $arrayElemAt: ["$ticket.code_string", 0],
+                },
+                result: "$scan_result",
+                gate: "$gate_label",
+                time: "$createdAt",
               },
             },
           ],
@@ -101,117 +117,243 @@ export const getEventAttendance = async (req, res) => {
       },
     ];
 
-    // 5. Run both database queries at the same time
     const [ticketGroups, [facets]] = await Promise.all([
       Ticket.aggregate(ticketPipeline),
       Scan.aggregate(scanPipeline),
     ]);
 
-    // 6. Turn the raw results into clean numbers
     const ticketCount = (status) => {
-      const found = ticketGroups.find((t) => t._id === status);
-      return found ? found.count : 0;
-    };
-    const scanCount = (result) => {
-      const found = facets.outcomes.find((o) => o._id === result);
+      const found = ticketGroups.find((ticket) => ticket._id === status);
       return found ? found.count : 0;
     };
 
-    const totalTickets = ticketGroups.reduce((sum, t) => sum + t.count, 0);
-    const checkedIn = ticketCount('used');
-    const totalScans = facets.outcomes.reduce((sum, o) => sum + o.count, 0);
-    const duplicate = scanCount('duplicate');
+    const scanCount = (result) => {
+      const found = facets.outcomes.find((outcome) => outcome._id === result);
+      return found ? found.count : 0;
+    };
+
+    const totalTickets = ticketGroups.reduce(
+      (sum, ticket) => sum + ticket.count,
+      0,
+    );
+    const checkedIn = ticketCount("used");
+    const totalScans = facets.outcomes.reduce(
+      (sum, outcome) => sum + outcome.count,
+      0,
+    );
+    const duplicate = scanCount("duplicate");
 
     return res.status(200).json({
       success: true,
       data: {
-        event: { id, name: event.name, date: event.date, venue: event.venue },
+        event: {
+          id,
+          name: event.name,
+          date: event.date,
+          venue: event.venue,
+        },
         totalTickets,
         checkedIn,
         notYetCheckedIn: Math.max(totalTickets - checkedIn, 0),
-        attendanceRate: totalTickets > 0 ? round1((checkedIn / totalTickets) * 100) : 0,
+        attendanceRate:
+          totalTickets > 0 ? round1((checkedIn / totalTickets) * 100) : 0,
         scans: {
           total: totalScans,
-          valid: scanCount('valid'),
+          valid: scanCount("valid"),
           duplicate,
-          invalid: scanCount('invalid'),
-          wrongEvent: scanCount('wrong-event'),
-          pendingSync: scanCount('pending-sync'),
-          duplicateRate: totalScans > 0 ? round1((duplicate / totalScans) * 100) : 0,
+          invalid: scanCount("invalid"),
+          wrongEvent: scanCount("wrong-event"),
+          pendingSync: scanCount("pending-sync"),
+          duplicateRate:
+            totalScans > 0 ? round1((duplicate / totalScans) * 100) : 0,
         },
-        perGate: facets.perGate.map((g) => ({ gate: g._id || 'Unknown', count: g.count })),
-        perHour: facets.perHour.map((h) => ({ hour: h._id, count: h.count })),
+        perGate: facets.perGate.map((gate) => ({
+          gate: gate._id || "Unknown",
+          count: gate.count,
+        })),
+        perHour: facets.perHour.map((hour) => ({
+          hour: hour._id,
+          count: hour.count,
+        })),
         recentScans: facets.recent,
       },
     });
   } catch (error) {
-    console.error('getEventAttendance error:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    console.error("getEventAttendance error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
-/* ======================================================================
-   FRAUD PREVENTION (owner: Maddiiedev)
-   Call this AFTER the right ticket has been found for the right event.
-   Returns { statusCode, body }; it does NOT send the response itself.
-   ====================================================================== */
+// GET /api/scans/events/:id/staff-attendance
+export const getStaffEventAttendance = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event id",
+      });
+    }
+
+    const event = await Event.findOne({
+      _id: id,
+      staff: req.user.id,
+    })
+      .select("name date venue")
+      .lean();
+
+    if (!event) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not assigned to this event",
+      });
+    }
+
+    const eventFilter = { event_id: id };
+
+    const [totalTickets, checkedIn, notYetCheckedIn, recentRecords] =
+      await Promise.all([
+        Ticket.countDocuments(eventFilter),
+        Ticket.countDocuments({ ...eventFilter, status: "used" }),
+        Ticket.countDocuments({ ...eventFilter, status: "unused" }),
+        Scan.find(eventFilter)
+          .sort({ createdAt: -1 })
+          .limit(RECENT_LIMIT)
+          .populate({
+            path: "ticket_id",
+            select: "code_string ticket_type attendee_id",
+            populate: {
+              path: "attendee_id",
+              select: "firstName lastName",
+            },
+          })
+          .populate("attendee_id", "firstName lastName")
+          .lean(),
+      ]);
+
+    const recentScans = recentRecords.map((record) => {
+      const ticket = record.ticket_id;
+      const attendee =
+        record.attendee_id || (ticket && ticket.attendee_id) || null;
+
+      return {
+        ticketCode: ticket?.code_string ?? null,
+        result: record.scan_result,
+        time: record.createdAt,
+        ticketType: ticket?.ticket_type ?? null,
+        attendee: attendee
+          ? {
+              id: attendee._id,
+              firstName: attendee.firstName,
+              lastName: attendee.lastName,
+            }
+          : null,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        event: {
+          id: event._id,
+          name: event.name,
+          date: event.date,
+          venue: event.venue,
+        },
+        totalTickets,
+        checkedIn,
+        notYetCheckedIn,
+        attendanceRate:
+          totalTickets > 0 ? round1((checkedIn / totalTickets) * 100) : 0,
+        recentScans,
+      },
+    });
+  } catch (error) {
+    console.error("getStaffEventAttendance error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/*
+ * Called after a valid ticket has been found.
+ * The atomic update prevents simultaneous scans from checking in
+ * the same ticket more than once.
+ */
 export const checkInTicket = async ({ ticket, event_id, scannedBy, gate }) => {
-  // One atomic step: only an UNUSED ticket can be changed, so two scanners
-  // can never both succeed on the same ticket.
+  const attendee = await getAttendeeDetails(ticket.attendee_id);
+
   const claimed = await Ticket.findOneAndUpdate(
-    { _id: ticket._id, status: 'unused' },
-    { $set: { status: 'used' } },
-    { returnDocument: 'after' }
+    { _id: ticket._id, status: "unused" },
+    { $set: { status: "used" } },
+    { returnDocument: "after" },
   );
 
-  // Not claimed: already used, so block entry.
   if (!claimed) {
-    const firstScan = await Scan.findOne({ ticket_id: ticket._id, scan_result: 'valid' })
+    const firstScan = await Scan.findOne({
+      ticket_id: ticket._id,
+      scan_result: "valid",
+    })
       .sort({ createdAt: 1 })
       .lean();
 
     await Scan.create({
       ticket_id: ticket._id,
+      attendee_id: ticket.attendee_id ?? null,
       event_id,
       scanned_by: scannedBy,
-      scan_result: 'duplicate',
+      scan_result: "duplicate",
       ...(gate && { gate_label: gate }),
     });
 
     return {
       statusCode: 409,
       body: {
-        status: 'duplicate',
-        message: 'Ticket has already been used',  
+        status: "duplicate",
+        message: "Ticket has already been used",
         ticketCode: ticket.code_string,
+        ticketType: ticket.ticket_type,
+        attendee,
         firstCheckedInAt: firstScan ? firstScan.createdAt : null,
       },
     };
   }
 
-  // Claimed: record the check-in.
   try {
     const scan = await Scan.create({
-      ticket_id: ticket._id,
+      ticket_id: claimed._id,
+      attendee_id: claimed.attendee_id ?? null,
       event_id,
       scanned_by: scannedBy,
-      scan_result: 'valid',
+      scan_result: "valid",
       ...(gate && { gate_label: gate }),
     });
 
     return {
       statusCode: 200,
       body: {
-             status: 'valid',
-             message: 'Ticket is valid',
-             ticketCode: claimed.code_string,
-             checkedInAt: scan.createdAt,
-     },
+        status: "valid",
+        message: "Ticket is valid",
+        ticketCode: claimed.code_string,
+        ticketType: claimed.ticket_type,
+        attendee,
+        checkedInAt: scan.createdAt,
+      },
     };
   } catch (saveError) {
-    // If the record failed to save, put the ticket back so the person
-    // isn't locked out by a server hiccup.
-    await Ticket.updateOne({ _id: ticket._id }, { $set: { status: 'unused' } });
+    await Ticket.updateOne(
+      { _id: claimed._id },
+      { $set: { status: "unused" } },
+    );
+
     throw saveError;
   }
 };
