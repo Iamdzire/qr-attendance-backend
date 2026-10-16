@@ -1,0 +1,46 @@
+import express from "express";
+
+import {
+  registerUser,
+  verifyAccountCode,
+  resendVerificationCode,
+  loginUser,
+  forgotPassword,
+  resendResetCode,
+  verifyResetCode,
+  confirmResetPassword,
+  logoutUser,
+  updateUserProfile,
+  getAllStaffs
+} from "../controllers/user.js";
+
+import {
+  requireAuth,
+  requireOrganizer,
+  requireStaff,
+} from "../middleware/auth.js";
+
+const router = express.Router();
+
+// Signup & Authentication Routes
+router.post("/register", registerUser);
+router.post("/verify-code", verifyAccountCode);
+router.post("/resend-code", resendVerificationCode);
+router.post("/login", loginUser);
+
+// Refactored Password Recovery Multi-Screen Routes
+router.post("/forgot-password", forgotPassword);
+router.post("/resend-reset-code", resendResetCode);
+router.post("/verify-reset-code", verifyResetCode); // Screen A: Checks digits only
+router.post("/confirm-reset-password", confirmResetPassword); // Screen B: Sets new text password
+
+// Session Closures
+router.post("/logout", logoutUser);
+
+// 🆕 Profile Management Path (Protected by requireAuth)
+router.put("/update-profile", requireAuth, updateUserProfile);
+
+// Users
+router.get('/staffs', requireAuth, requireOrganizer, getAllStaffs)
+
+export default router;
