@@ -9,6 +9,7 @@ const router = express.Router();
 // EVENT ENDPOINTS
 router.post("/", requireAuth, requireOrganizer, upload.single("image"), eventController.createEvent);
 router.get("/", eventController.getAllEvents);
+router.get('/events-by-organizer', requireAuth, requireOrganizer, eventController.getEventsByOrganizer);
 
 // EVENT TICKET ENDPOINTS
 router.get("/:id/codes", requireAuth, eventController.getEventTickets);
