@@ -202,6 +202,27 @@ class EventController {
     }
   }
 
+  async getEventsByOrganizer(req, res) {
+    try {
+      const events = await Event.find({
+        organizer_id: req.user.id
+      })
+      if(!events){
+        return res.status(404).json({
+          error: "No event found"
+        })
+      }
+      return res.status(200).json({
+        message: "Events fetched successfully.",
+        data: events
+      })
+    }catch(error){
+      return res.status(500).json({
+        error: error.message
+      })
+    }
+  }
+
   async getEventById(req, res) {
     try {
       const { id } = req.params;
