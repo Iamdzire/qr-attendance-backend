@@ -8,6 +8,12 @@ const scanSchema = new mongoose.Schema(
       required: false,
       default: null,
     },
+    attendee_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Attendee",
+      required: false,
+      default: null,
+    },
     event_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Event",
@@ -23,7 +29,10 @@ const scanSchema = new mongoose.Schema(
       enum: ["valid", "duplicate", "invalid", "wrong-event", "pending-sync"],
       required: true,
     },
-    gate_label: { type: String, default: "Main Gate" },
+    gate_label: {
+      type: String,
+      default: "Main Gate",
+    },
   },
   { timestamps: true },
 );

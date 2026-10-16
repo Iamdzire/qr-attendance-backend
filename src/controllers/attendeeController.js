@@ -2,12 +2,13 @@ import mongoose from "mongoose";
 import Attendee from "../models/attendee.js";
 import Ticket from "../models/ticket.js";
 import Event from "../models/event.js";
+import generateQrCode from "../services/qrService.js";
+import { verifyQrToken } from "../services/tokenService.js";
 
 export const getAttendeeTicket = async (req, res) => {
   try {
     const { attendeeId, eventId } = req.params;
 
-    // Validate MongoDB IDs
     if (
       !mongoose.isValidObjectId(attendeeId) ||
       !mongoose.isValidObjectId(eventId)
@@ -18,7 +19,6 @@ export const getAttendeeTicket = async (req, res) => {
       });
     }
 
-    // Confirm that the attendee exists
     const attendee = await Attendee.findById(attendeeId).select(
       "firstName lastName email phone",
     );
@@ -30,7 +30,6 @@ export const getAttendeeTicket = async (req, res) => {
       });
     }
 
-    // Confirm that the event exists
     const event = await Event.findById(eventId).select(
       "name date venue status",
     );
@@ -42,7 +41,6 @@ export const getAttendeeTicket = async (req, res) => {
       });
     }
 
-    // Find the attendee's ticket for this event
     const ticket = await Ticket.findOne({
       attendee_id: attendeeId,
       event_id: eventId,
@@ -54,12 +52,43 @@ export const getAttendeeTicket = async (req, res) => {
         message: "No ticket found for this attendee and event",
       });
     }
+
     if (!ticket.qr_token) {
       return res.status(409).json({
         success: false,
         message: "The QR code is not ready yet",
       });
     }
+
+    let decodedToken;
+
+    try {
+      decodedToken = verifyQrToken(ticket.qr_token);
+    } catch {
+      return res.status(409).json({
+        success: false,
+        message: "The saved QR token is invalid or expired",
+      });
+    }
+
+    const tokenAttendeeId =
+      decodedToken.attendeeId == null
+        ? null
+        : String(decodedToken.attendeeId);
+
+    const ticketMatchesToken =
+      decodedToken.ticketId === ticket._id.toString() &&
+      decodedToken.eventId === ticket.event_id.toString() &&
+      tokenAttendeeId === ticket.attendee_id?.toString();
+
+    if (!ticketMatchesToken) {
+      return res.status(409).json({
+        success: false,
+        message: "The saved QR token does not match this ticket",
+      });
+    }
+
+    const qrCode = await generateQrCode(ticket.qr_token);
 
     return res.status(200).json({
       success: true,
@@ -72,7 +101,6 @@ export const getAttendeeTicket = async (req, res) => {
           email: attendee.email,
           phone: attendee.phone,
         },
-
         event: {
           id: event._id,
           name: event.name,
@@ -80,22 +108,22 @@ export const getAttendeeTicket = async (req, res) => {
           venue: event.venue,
           status: event.status,
         },
-
         ticket: {
           id: ticket._id,
           code: ticket.code_string,
           status: ticket.status,
           ticket_type: ticket.ticket_type,
-          qrGenerated: Boolean(ticket.qr_token),
+          qrGenerated: true,
+          qrCode,
         },
       },
     });
   } catch (error) {
-    console.error("Get attendee ticket error:", error);
+    console.error("getAttendeeTicket error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to retrieve attendee ticket",
+      message: "Unable to retrieve attendee ticket",
     });
   }
 };

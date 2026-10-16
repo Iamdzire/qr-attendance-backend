@@ -6,18 +6,17 @@ export const generateQrToken = ({ ticketId, eventId, attendeeId }) => {
     throw new Error("JWT_SECRET is not configured");
   }
 
-  // create a unique identifier
-  const tokenId = crypto.randomUUID();
+  if (!ticketId || !eventId) {
+    throw new Error("Ticket ID and event ID are required");
+  }
 
-  // details that goes into our token
   const payload = {
     ticketId: ticketId.toString(),
     eventId: eventId.toString(),
-    attendeeId: attendeeId.toString(),
-    jti: tokenId,
+    attendeeId: attendeeId == null ? null : attendeeId.toString(),
+    jti: crypto.randomUUID(),
   };
 
-  // signing the token
   return jwt.sign(payload, process.env.JWT_SECRET, {
     algorithm: "HS256",
     expiresIn: process.env.QR_TOKEN_EXPIRES_IN,
@@ -26,7 +25,7 @@ export const generateQrToken = ({ ticketId, eventId, attendeeId }) => {
 
 export const verifyQrToken = (token) => {
   if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is not configure");
+    throw new Error("JWT_SECRET is not configured");
   }
 
   return jwt.verify(token, process.env.JWT_SECRET, {

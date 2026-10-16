@@ -1,6 +1,9 @@
 import express from "express";
 import { validateTicket } from "../controllers/scan.js";
-import { getEventAttendance } from "../controllers/scanController.js";
+import {
+  getEventAttendance,
+  getStaffEventAttendance,
+} from "../controllers/scanController.js";
 import {
   requireAuth,
   requireOrganizer,
@@ -9,8 +12,6 @@ import {
 
 const router = express.Router();
 
-// Only authenticated organizers can access attendance reports.
-// Event ownership will also be checked in the controller.
 router.get(
   "/events/:id/attendance",
   requireAuth,
@@ -18,7 +19,13 @@ router.get(
   getEventAttendance,
 );
 
-// Only authenticated staff can scan tickets.
+router.get(
+  "/events/:id/staff-attendance",
+  requireAuth,
+  requireStaff,
+  getStaffEventAttendance,
+);
+
 router.post("/scan", requireAuth, requireStaff, validateTicket);
 
 export default router;
