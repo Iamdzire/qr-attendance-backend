@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 import Ticket from "../models/ticket.js";
 import Attendee from "../models/attendee.js";
