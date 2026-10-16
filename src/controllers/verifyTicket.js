@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 import Ticket from "../models/ticket.js";
 import Attendee from "../models/attendee.js";
@@ -103,10 +104,10 @@ export const verifyTicketCode = async (req, res) => {
     // 9. Generate the QR image
     const qrCode = await generateQrCode(qrToken);
 
-    //Generate a goodle Maps link based on the event venue
+    // Generate a Google Maps link based on the event venue
     const mapUrl =
       event.mapUrl ||
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.venue)}"`;
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.venue)}`;
 
     // 10. Email the QR code using the attendee's full name
     const emailResult = await sendQrEmail({
@@ -122,12 +123,14 @@ export const verifyTicketCode = async (req, res) => {
 
     console.log("QR ticket email accepted by Resend:", emailResult?.id);
 
-    // 12. Return successful response
+    // 11. Return successful response, including QR data for the mobile app
     return res.status(200).json({
       success: true,
       message: "Ticket verified and QR code emailed successfully.",
 
       data: {
+        qrToken,
+        qrCode,
         ticketId: ticket._id,
 
         attendee: {
