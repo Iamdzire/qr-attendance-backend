@@ -11,6 +11,7 @@ import {
   confirmResetPassword,
   logoutUser,
   updateUserProfile,
+  getAllStaffs
 } from "../controllers/user.js";
 
 import {
@@ -38,5 +39,8 @@ router.post("/logout", logoutUser);
 
 // 🆕 Profile Management Path (Protected by requireAuth)
 router.put("/update-profile", requireAuth, updateUserProfile);
+
+// Users
+router.get('/staffs', requireAuth, requireOrganizer, getAllStaffs)
 
 export default router;
