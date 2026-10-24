@@ -7,7 +7,7 @@ import { verifyQrToken } from "../services/tokenService.js";
 
 export const getAttendeeTicket = async (req, res) => {
   try {
-    const { attendeeId, eventId } = req.params;
+    const { attendeeId, eventId } = req.ticketAccess;
 
     if (
       !mongoose.isValidObjectId(attendeeId) ||
@@ -72,9 +72,7 @@ export const getAttendeeTicket = async (req, res) => {
     }
 
     const tokenAttendeeId =
-      decodedToken.attendeeId == null
-        ? null
-        : String(decodedToken.attendeeId);
+      decodedToken.attendeeId == null ? null : String(decodedToken.attendeeId);
 
     const ticketMatchesToken =
       decodedToken.ticketId === ticket._id.toString() &&
