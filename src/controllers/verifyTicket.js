@@ -120,8 +120,6 @@ export const verifyTicketCode = async (req, res) => {
       qrCode,
     });
 
-    console.log("QR ticket email accepted by Resend:", emailResult?.id);
-
     // 11. Return successful response, including QR data for the mobile app
     return res.status(200).json({
       success: true,

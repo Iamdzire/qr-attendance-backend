@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
 
 import Ticket from "../models/ticket.js";
 import Event from "../models/event.js";
@@ -40,7 +41,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 3. Normalize and validate ticket category
+    // 3. Validate ticket category
     const normalizedTicketType = ticket_type.trim().toUpperCase();
 
     const allowedTicketTypes = ["REGULAR", "VIP", "VVIP"];
@@ -79,36 +80,56 @@ export const registerAttendee = async (req, res) => {
     const normalizedLastName = lastName.trim();
     const normalizedPhone = phone.trim();
 
-    // 6. Find or create the attendee
+    // 6. Confirm that JWT_SECRET is configured
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not configured.");
+
+      return res.status(500).json({
+        success: false,
+        message: "Authentication service is not configured.",
+      });
+    }
+
+    // 7. Find or create the attendee
     let attendee = await Attendee.findOne({
       email: normalizedEmail,
     });
 
-    if (!attendee) {
-      try {
-        attendee = await Attendee.create({
-          firstName: normalizedFirstName,
-          lastName: normalizedLastName,
-          email: normalizedEmail,
-          phone: normalizedPhone,
-        });
-      } catch (error) {
-        // Handle concurrent creation of an attendee with the same email.
-        if (error.code === 11000) {
-          attendee = await Attendee.findOne({
-            email: normalizedEmail,
-          });
+    let attendeeWasCreated = false;
 
-          if (!attendee) {
-            throw error;
-          }
-        } else {
-          throw error;
-        }
-      }
+    if (attendee) {
+      // Do not issue a token merely because someone
+      // submits an existing attendee's email address.
+      return res.status(409).json({
+        success: false,
+        message:
+          "An attendee with this email already exists. Please use the appropriate ticket recovery process.",
+      });
     }
 
-    // 7. Prevent duplicate registration for the same event
+    try {
+      attendee = await Attendee.create({
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
+        email: normalizedEmail,
+        phone: normalizedPhone,
+      });
+
+      attendeeWasCreated = true;
+    } catch (error) {
+      // Handle concurrent creation using the same email.
+      if (error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "An attendee with this email already exists. Please use the appropriate ticket recovery process.",
+        });
+      }
+
+      throw error;
+    }
+
+    // 8. Check for duplicate registration
     const existingTicket = await Ticket.findOne({
       event_id: eventId,
       attendee_id: attendee._id,
@@ -121,7 +142,7 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 8. Atomically assign an available ticket from the selected category
+    // 9. Assign an available ticket from the selected category
     const ticket = await Ticket.findOneAndUpdate(
       {
         event_id: eventId,
@@ -141,15 +162,23 @@ export const registerAttendee = async (req, res) => {
       },
     );
 
-    // 9. Handle unavailable tickets
+    // 10. Handle unavailable tickets
     if (!ticket) {
+      // Remove the newly created attendee because no ticket
+      // was assigned. Do not delete pre-existing attendees.
+      if (attendeeWasCreated) {
+        await Attendee.deleteOne({
+          _id: attendee._id,
+        });
+      }
+
       return res.status(409).json({
         success: false,
         message: `No available ${selectedTicketType} tickets for this event.`,
       });
     }
 
-    // 10. Send the ticket code through Brevo
+    // 11. Send the ticket code through Brevo
     try {
       await sendTicketCodeEmail({
         attendeeName: `${attendee.firstName} ${attendee.lastName}`,
@@ -163,7 +192,7 @@ export const registerAttendee = async (req, res) => {
     } catch (emailError) {
       console.error("Ticket email failed:", emailError);
 
-      // Release the ticket if Brevo rejects the email request.
+      // Release the ticket if the email request fails.
       try {
         await Ticket.updateOne(
           {
@@ -178,6 +207,12 @@ export const registerAttendee = async (req, res) => {
             },
           },
         );
+
+        if (attendeeWasCreated) {
+          await Attendee.deleteOne({
+            _id: attendee._id,
+          });
+        }
       } catch (releaseError) {
         console.error("Failed to release assigned ticket:", releaseError);
       }
@@ -189,11 +224,24 @@ export const registerAttendee = async (req, res) => {
       });
     }
 
-    // 11. Return successful registration details
+    // 12. Generate the attendee JWT
+    const tempToken = jwt.sign(
+      {
+        id: attendee._id.toString(),
+        eventId: event._id.toString(),
+        ticketId: ticket._id.toString(),
+        purpose: "attendee-ticket-access",
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "15m",
+      },
+    );
+
+    // 13. Return successful registration details
     return res.status(201).json({
       success: true,
       message: "Registration successful. Ticket code sent to your email.",
-
       data: {
         attendee: {
           id: attendee._id,
@@ -202,20 +250,21 @@ export const registerAttendee = async (req, res) => {
           email: attendee.email,
           phone: attendee.phone,
         },
-
         event: {
           id: event._id,
           name: event.name,
           date: event.date,
           venue: event.venue,
         },
-
         ticket: {
           id: ticket._id,
           code: ticket.code_string,
           status: ticket.status,
           ticketType: ticket.ticket_type,
         },
+        accessToken: tempToken,
+        tokenType: "Bearer",
+        expiresIn: "15m",
       },
     });
   } catch (error) {
